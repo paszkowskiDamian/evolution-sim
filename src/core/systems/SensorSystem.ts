@@ -18,6 +18,7 @@ export class SensorSystem implements System {
   readonly name = 'SensorSystem';
   private readonly nearestFood = makeNearestResult();
   private readonly nearestAgent = makeNearestResult();
+  private readonly nearestItem = makeNearestResult();
 
   update(world: World): void {
     const cfg = world.config;
@@ -85,6 +86,26 @@ export class SensorSystem implements System {
 
       // --- szum ---
       input[11] = rng.symmetric(1);
+
+      // --- czy coś niosę ---
+      input[12] = a.carriedItemType >= 0 ? 1 : -1;
+
+      // --- najbliższy kamień (lustrzane odbicie sensora jedzenia) ---
+      const it = queryNearest(world.itemGrid, a.x, a.y, vision, this.nearestItem);
+      if (it.found) {
+        const dist = Math.sqrt(it.dist2);
+        const bearing = normalizeAngle(Math.atan2(it.dy, it.dx) - a.heading);
+        input[13] = Math.sin(bearing);
+        input[14] = Math.cos(bearing);
+        input[15] = 1 - dist / vision;
+      } else {
+        input[13] = 0;
+        input[14] = 0;
+        input[15] = 0;
+      }
+
+      // --- własne zdrowie ---
+      input[16] = (a.health / a.phenotype.maxHealth) * 2 - 1;
     }
   }
 }

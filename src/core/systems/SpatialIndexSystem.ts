@@ -24,5 +24,12 @@ export class SpatialIndexSystem implements System {
     for (let i = 0; i < food.capacity; i++) {
       if (food.alive[i] === 1) fg.insert(i, food.xs[i], food.ys[i]);
     }
+
+    const ig = world.itemGrid;
+    ig.clear();
+    const items = world.items;
+    for (let i = 0; i < items.capacity; i++) {
+      if (items.alive[i] === 1) ig.insert(i, items.xs[i], items.ys[i]);
+    }
   }
 }

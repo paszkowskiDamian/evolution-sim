@@ -29,6 +29,28 @@ export interface SimulationConfig {
   foodClusterCount: number;
   foodClusterRadius: number;
 
+  // --- kamienie (przenoszalne przedmioty) ---
+  /** Ile kamieni istnieje w świecie — pojemność pola przedmiotów. */
+  rockCount: number;
+  /** Ticki/kamień do dosiewania nowych (0 = brak — kamienie tylko krążą). */
+  rockRespawnRate: number;
+  /** Zasięg chwytu/upuszczenia względem promienia ciała. */
+  pickupRange: number;
+  /** Ticki blokady po podniesieniu/upuszczeniu — chroni przed migotaniem. */
+  carryActionCooldown: number;
+  /** Mnożnik kosztu metabolizmu podczas niesienia czegokolwiek. */
+  carryMetabolismMultiplier: number;
+
+  // --- walka ---
+  attackRange: number;
+  attackDamageBase: number;
+  /** Koszt energii ZA UDANY atak (nieudana próba nic nie kosztuje). */
+  attackEnergyCost: number;
+  attackCooldownTicks: number;
+  baseMaxHealth: number;
+  /** Bierna regeneracja zdrowia na tick (nie kosztuje energii). */
+  healthRegenRate: number;
+
   // --- energia ---
   maxEnergy: number;
   startEnergy: number;
@@ -71,8 +93,15 @@ export interface SimulationConfig {
   /** Ile najbliższych agentów bierzemy pod uwagę przy liczeniu zagęszczenia. */
   neighborSampleLimit: number;
 
-  // --- mózg ---
-  hiddenNeurons: number;
+  // --- mózg (topologia ewoluowalna) ---
+  minHiddenLayers: number;
+  /** Też: liczba warstw, wobec której liczona jest pojemność genomu. */
+  maxHiddenLayers: number;
+  minLayerWidth: number;
+  /** Też: szerokość warstwy, wobec której liczona jest pojemność genomu. */
+  maxLayerWidth: number;
+  /** Wyłącznie punkt odniesienia do kalibracji kosztu mózgu w EnergySystem. */
+  defaultLayerWidth: number;
 
   // --- statystyki ---
   statsInterval: number; // co ile ticków zapisujemy próbkę
@@ -101,6 +130,19 @@ export const defaultConfig: SimulationConfig = {
   foodRadius: 4,
   foodClusterCount: 18,
   foodClusterRadius: 220,
+
+  rockCount: 40,
+  rockRespawnRate: 0,
+  pickupRange: 6,
+  carryActionCooldown: 30,
+  carryMetabolismMultiplier: 1.15,
+
+  attackRange: 10,
+  attackDamageBase: 18,
+  attackEnergyCost: 4,
+  attackCooldownTicks: 40,
+  baseMaxHealth: 100,
+  healthRegenRate: 0.05,
 
   maxEnergy: 100,
   startEnergy: 60,
@@ -135,7 +177,11 @@ export const defaultConfig: SimulationConfig = {
   visionRadius: 260,
   neighborSampleLimit: 12,
 
-  hiddenNeurons: 10,
+  minHiddenLayers: 1,
+  maxHiddenLayers: 3,
+  minLayerWidth: 4,
+  maxLayerWidth: 16,
+  defaultLayerWidth: 10,
 
   statsInterval: 20,
   statsHistoryLength: 600,

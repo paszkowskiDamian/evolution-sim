@@ -1,18 +1,20 @@
 import type { SimulationConfig } from '../../config/simulationConfig';
 import type { Rng } from '../utils/rng';
 import { geneToRange } from '../utils/math';
-import { brainGeneCount } from '../neural/network';
+import { brainGeneCount, type BrainShape } from '../neural/network';
 
 /**
  * Genom = jedna płaska tablica liczb (Float32Array).
  *
  * Układ:
- *   [0 .. brainGeneCount)                  — wagi i biasy sieci neuronowej
- *   [brainGeneCount .. +BIO_GENE_COUNT)    — geny biologiczne
+ *   [0 .. brainGeneCount)                          — wagi i biasy sieci neuronowej (pojemność)
+ *   [brainGeneCount .. +structGeneCount)            — geny strukturalne (kształt sieci)
+ *   [+structGeneCount .. +BIO_GENE_COUNT)           — geny biologiczne
  *
- * Geny biologiczne trzymamy w tej samej tablicy celowo: mutacja nie musi
- * wiedzieć, co mutuje. Ewolucja może zmieniać ciało i mózg tym samym
- * mechanizmem, a nowe cechy dodajemy przez rozszerzenie tablicy.
+ * Geny biologiczne i strukturalne trzymamy w tej samej tablicy celowo:
+ * mutacja nie musi wiedzieć, co mutuje. Ewolucja może zmieniać ciało, mózg
+ * i JEGO KSZTAŁT tym samym mechanizmem, a nowe cechy dodajemy przez
+ * rozszerzenie tablicy.
  */
 
 export const BIO_GENES = {
@@ -22,7 +24,7 @@ export const BIO_GENES = {
   reproThreshold: 3, // próg energii do rozmnażania
   vision: 4, // zasięg widzenia
   hue: 5, // barwa (czysto fenotypowa, ale dziedziczna — widać linie rodowe)
-  aggression: 6, // rezerwa pod M5/M6 (drapieżnictwo, rywalizacja)
+  aggression: 6, // siła ataku — patrz AttackSystem
 } as const;
 
 export const BIO_GENE_COUNT = 7;
@@ -35,27 +37,61 @@ export interface Phenotype {
   visionRadius: number;
   hue: number;
   aggression: number;
+  maxHealth: number;
+}
+
+/** Liczba genów strukturalnych: 1 (liczba warstw) + 1 na każdy dopuszczalny slot warstwy. */
+export function structGeneCount(config: SimulationConfig): number {
+  return 1 + config.maxHiddenLayers;
+}
+
+export function structGeneOffset(config: SimulationConfig): number {
+  return brainGeneCount(config);
 }
 
 export function genomeLength(config: SimulationConfig): number {
-  return brainGeneCount(config.hiddenNeurons) + BIO_GENE_COUNT;
+  return bioGeneOffset(config) + BIO_GENE_COUNT;
 }
 
 export function bioGeneOffset(config: SimulationConfig): number {
-  return brainGeneCount(config.hiddenNeurons);
+  return brainGeneCount(config) + structGeneCount(config);
 }
 
-/** Losowy genom startowy — wagi z rozkładu normalnego, geny bio jednostajnie. */
+/** Losowy genom startowy — wagi z rozkładu normalnego, geny strukturalne i bio jednostajnie. */
 export function createRandomGenome(config: SimulationConfig, rng: Rng): Float32Array {
-  const brainGenes = brainGeneCount(config.hiddenNeurons);
-  const genome = new Float32Array(brainGenes + BIO_GENE_COUNT);
+  const brainGenes = brainGeneCount(config);
+  const structGenes = structGeneCount(config);
+  const genome = new Float32Array(brainGenes + structGenes + BIO_GENE_COUNT);
   for (let i = 0; i < brainGenes; i++) {
     genome[i] = rng.gaussian(0, 0.8);
   }
-  for (let i = 0; i < BIO_GENE_COUNT; i++) {
+  for (let i = 0; i < structGenes; i++) {
     genome[brainGenes + i] = rng.symmetric(1);
   }
+  for (let i = 0; i < BIO_GENE_COUNT; i++) {
+    genome[brainGenes + structGenes + i] = rng.symmetric(1);
+  }
   return genome;
+}
+
+/**
+ * Dekoduje geny strukturalne na konkretny kształt sieci (liczbę i szerokość
+ * warstw ukrytych). Wywoływane WYŁĄCZNIE raz, przy narodzinach agenta —
+ * nigdy w pętli ticka. To jedyne miejsce, w którym "gen strukturalny"
+ * staje się realnym rozmiarem sieci.
+ */
+export function decodeBrainShape(genome: Float32Array, config: SimulationConfig): BrainShape {
+  const o = structGeneOffset(config);
+  const layerCount = Math.round(
+    geneToRange(genome[o], config.minHiddenLayers, config.maxHiddenLayers),
+  );
+  const widths: number[] = [];
+  for (let i = 0; i < config.maxHiddenLayers; i++) {
+    widths.push(
+      Math.round(geneToRange(genome[o + 1 + i], config.minLayerWidth, config.maxLayerWidth)),
+    );
+  }
+  return { layerCount, widths };
 }
 
 /**
@@ -64,8 +100,13 @@ export function createRandomGenome(config: SimulationConfig, rng: Rng): Float32A
  */
 export function decodePhenotype(genome: Float32Array, config: SimulationConfig): Phenotype {
   const o = bioGeneOffset(config);
+  const radius = geneToRange(genome[o + BIO_GENES.size], config.agentRadiusMin, config.agentRadiusMax);
+  const sizeFrac =
+    config.agentRadiusMax > config.agentRadiusMin
+      ? (radius - config.agentRadiusMin) / (config.agentRadiusMax - config.agentRadiusMin)
+      : 0.5;
   return {
-    radius: geneToRange(genome[o + BIO_GENES.size], config.agentRadiusMin, config.agentRadiusMax),
+    radius,
     maxSpeed: geneToRange(genome[o + BIO_GENES.speed], config.maxSpeed * 0.45, config.maxSpeed),
     metabolism: geneToRange(genome[o + BIO_GENES.metabolism], 0.7, 1.6),
     reproThreshold: geneToRange(
@@ -82,6 +123,9 @@ export function decodePhenotype(genome: Float32Array, config: SimulationConfig):
     // inaczej przy oddaleniu nie da się odróżnić agenta od pokarmu.
     hue: (0.5 + geneToRange(genome[o + BIO_GENES.hue], 0, 0.75)) % 1,
     aggression: geneToRange(genome[o + BIO_GENES.aggression], 0, 1),
+    // Większe ciało = więcej wytrzymałości w walce — nie ma osobnego genu,
+    // korzystamy wprost z już zdekodowanego promienia.
+    maxHealth: config.baseMaxHealth * (0.5 + 0.5 * sizeFrac),
   };
 }
 

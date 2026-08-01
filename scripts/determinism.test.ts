@@ -27,14 +27,19 @@ function hashWorld(sim: Simulation): string {
 
   mix(sim.world.agents.length);
   mix(sim.world.food.count);
+  mix(sim.world.items.count);
   mix(sim.world.rng.getState() % 1e6);
+  mix(sim.world.foodRng.getState() % 1e6);
   for (const a of sim.world.agents) {
     mix(a.id);
     mix(a.x);
     mix(a.y);
     mix(a.energy);
+    mix(a.health);
     mix(a.heading);
     mix(a.generation);
+    mix(a.carriedItemType);
+    if (a.hiddenState.length > 0) mix(a.hiddenState[0]);
     for (let i = 0; i < a.genome.length; i += 7) mix(a.genome[i]);
   }
   return h.toString(16);
@@ -43,6 +48,10 @@ function hashWorld(sim: Simulation): string {
 function hasNaN(sim: Simulation): boolean {
   for (const a of sim.world.agents) {
     if (!Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(a.energy)) return true;
+    if (!Number.isFinite(a.health)) return true;
+    for (let i = 0; i < a.hiddenState.length; i++) {
+      if (!Number.isFinite(a.hiddenState[i])) return true;
+    }
     for (let i = 0; i < a.genome.length; i++) {
       if (!Number.isFinite(a.genome[i])) return true;
     }
@@ -94,6 +103,16 @@ check(
   '8. mutacje zachodzą',
   b.statistics.cumulative.totalMutations > 0,
   `${b.statistics.cumulative.totalMutations}`,
+);
+check(
+  '9. agenci podnoszą/upuszczają kamienie',
+  b.statistics.cumulative.totalPickups > 0,
+  `${b.statistics.cumulative.totalPickups} podniesień, ${b.statistics.cumulative.totalDrops} upuszczeń`,
+);
+check(
+  '10. agenci atakują się nawzajem',
+  b.statistics.cumulative.totalAttacks > 0,
+  `${b.statistics.cumulative.totalAttacks} ataków, ${b.statistics.cumulative.totalDeathsByCombat} zgonów w walce`,
 );
 
 console.log(failures === 0 ? '\nWszystkie testy przeszły.' : `\n${failures} test(ów) nie przeszło.`);

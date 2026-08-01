@@ -31,7 +31,13 @@ const TUNABLE: Array<{
   { key: 'mutationDelta', label: 'amplituda mutacji', min: 0.01, max: 1, step: 0.01 },
   { key: 'baseMetabolism', label: 'metabolizm bazowy', min: 0.005, max: 0.4, step: 0.005 },
   { key: 'maxAge', label: 'maks. wiek', min: 500, max: 20000, step: 100 },
-  { key: 'hiddenNeurons', label: 'neurony ukryte', min: 2, max: 32, step: 1, restart: true },
+  { key: 'maxHiddenLayers', label: 'maks. warstw ukrytych', min: 1, max: 6, step: 1, restart: true },
+  { key: 'maxLayerWidth', label: 'maks. szerokość warstwy', min: 4, max: 32, step: 1, restart: true },
+  { key: 'rockCount', label: 'liczba kamieni', min: 0, max: 400, step: 10, restart: true },
+  { key: 'pickupRange', label: 'zasięg chwytu', min: 1, max: 30, step: 1 },
+  { key: 'carryMetabolismMultiplier', label: 'koszt niesienia', min: 1, max: 2, step: 0.05 },
+  { key: 'attackRange', label: 'zasięg ataku', min: 1, max: 40, step: 1 },
+  { key: 'attackDamageBase', label: 'obrażenia ataku', min: 0, max: 60, step: 1 },
 ];
 
 const SPEEDS = [1, 2, 5, 10, 25, 100];

@@ -62,6 +62,16 @@ export function AgentPanel({ agent, onFollow, onClear }: Props) {
           <span className="stat-value">{agent.energy.toFixed(1)}</span>
         </div>
         <div className="stat">
+          <span className="stat-label">zdrowie</span>
+          <span className="stat-value">
+            {agent.health.toFixed(0)} / {agent.maxHealth.toFixed(0)}
+          </span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">niesie</span>
+          <span className="stat-value">{agent.carrying ? 'kamień' : '—'}</span>
+        </div>
+        <div className="stat">
           <span className="stat-label">wiek</span>
           <span className="stat-value">{agent.age}</span>
         </div>
@@ -126,9 +136,27 @@ export function AgentPanel({ agent, onFollow, onClear }: Props) {
         ))}
       </div>
 
-      <h3>Warstwa ukryta</h3>
+      <h3>Warstwa ukryta (ostatnia)</h3>
       <div className="hidden-row">
         {agent.hidden.map((v, i) => (
+          <div
+            key={i}
+            className="hidden-cell"
+            title={v.toFixed(3)}
+            style={{
+              background: v < 0 ? '#f87171' : '#4ade80',
+              opacity: 0.15 + Math.abs(v) * 0.85,
+            }}
+          />
+        ))}
+      </div>
+
+      <h3>Pamięć (stan ukryty, warstwa 0)</h3>
+      <p className="muted small">
+        Przenoszony między tickami — to jedyny mechanizm pamięci agenta.
+      </p>
+      <div className="hidden-row">
+        {agent.hiddenState.map((v, i) => (
           <div
             key={i}
             className="hidden-cell"

@@ -3,6 +3,7 @@ import { Rng } from '../utils/rng';
 import { SpatialGrid } from '../utils/spatialHash';
 import { Agent } from '../agents/agent';
 import { FoodField } from './food';
+import { ItemField, ROCK_TYPE } from './items';
 import { createRandomGenome } from '../genetics/genome';
 import { TAU, wrap } from '../utils/math';
 
@@ -12,7 +13,11 @@ export interface TickEvents {
   deaths: number;
   deathsByStarvation: number;
   deathsByAge: number;
+  deathsByCombat: number;
   foodEaten: number;
+  itemsPickedUp: number;
+  itemsDropped: number;
+  attacks: number;
   pointMutations: number;
   swapMutations: number;
   bigMutations: number;
@@ -70,16 +75,22 @@ export class World {
   agents: Agent[] = [];
   readonly agentById = new Map<number, Agent>();
   readonly food: FoodField;
+  readonly items: ItemField;
 
   readonly agentGrid: SpatialGrid;
   readonly foodGrid: SpatialGrid;
+  readonly itemGrid: SpatialGrid;
 
   readonly events: TickEvents = {
     births: 0,
     deaths: 0,
     deathsByStarvation: 0,
     deathsByAge: 0,
+    deathsByCombat: 0,
     foodEaten: 0,
+    itemsPickedUp: 0,
+    itemsDropped: 0,
+    attacks: 0,
     pointMutations: 0,
     swapMutations: 0,
     bigMutations: 0,
@@ -105,10 +116,12 @@ export class World {
     this.rng = new Rng(config.seed);
     this.foodRng = new Rng(config.seed ^ 0x5f356495);
     this.food = new FoodField(config.maxFood);
+    this.items = new ItemField(config.rockCount);
     // Rozmiar komórki dobrany pod typowy promień zapytania — 1 pierścień
     // sąsiadów wystarcza dla jedzenia, kilka dla wzroku agentów.
     this.agentGrid = new SpatialGrid(config.worldSize, Math.max(40, config.visionRadius / 3), config.wrapEdges);
     this.foodGrid = new SpatialGrid(config.worldSize, Math.max(40, config.visionRadius / 4), config.wrapEdges);
+    this.itemGrid = new SpatialGrid(config.worldSize, Math.max(40, config.visionRadius / 4), config.wrapEdges);
     this.reset();
   }
 
@@ -117,6 +130,7 @@ export class World {
     this.agents = [];
     this.agentById.clear();
     this.food.clear();
+    this.items.clear();
     this.lineage.length = 0;
     this.pendingBirths.length = 0;
     this.nextAgentId = 1;
@@ -140,6 +154,9 @@ export class World {
     // Startowy zapas jedzenia, żeby pierwsze pokolenie miało czego szukać.
     for (let i = 0; i < this.config.maxFood * 0.35; i++) {
       this.spawnFood();
+    }
+    for (let i = 0; i < this.config.rockCount; i++) {
+      this.spawnRock();
     }
   }
 
@@ -220,6 +237,24 @@ export class World {
     return this.clusters;
   }
 
+  // ------------------------------------------------------------ przedmioty
+
+  /**
+   * Kamienie rozsiewamy równomiernie (bez klastrów — w przeciwieństwie do
+   * jedzenia nie ma tu gradientu wartego śledzenia), przez `foodRng`
+   * NIGDY `rng`: rozkład kamieni jest cechą ŚRODOWISKA, a eksperyment
+   * "wspólny ogród" (patrz scripts/headless.ts) wymaga, żeby środowisko
+   * było identyczne niezależnie od tego, ile razy agenci sięgnęli po
+   * losowość.
+   */
+  spawnRock(): number {
+    if (this.items.isFull) return -1;
+    const cfg = this.config;
+    const x = this.foodRng.range(0, cfg.worldSize);
+    const y = this.foodRng.range(0, cfg.worldSize);
+    return this.items.spawn(x, y, ROCK_TYPE);
+  }
+
   // ------------------------------------------------------------- zdarzenia
 
   resetEvents(): void {
@@ -228,7 +263,11 @@ export class World {
     e.deaths = 0;
     e.deathsByStarvation = 0;
     e.deathsByAge = 0;
+    e.deathsByCombat = 0;
     e.foodEaten = 0;
+    e.itemsPickedUp = 0;
+    e.itemsDropped = 0;
+    e.attacks = 0;
     e.pointMutations = 0;
     e.swapMutations = 0;
     e.bigMutations = 0;

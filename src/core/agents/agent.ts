@@ -1,6 +1,6 @@
 import type { SimulationConfig } from '../../config/simulationConfig';
 import { NeuralNetwork, INPUT_COUNT } from '../neural/network';
-import { decodePhenotype, type Phenotype } from '../genetics/genome';
+import { decodePhenotype, decodeBrainShape, type Phenotype } from '../genetics/genome';
 
 /**
  * Agent — pojedynczy osobnik.
@@ -27,6 +27,17 @@ export class Agent {
   /** Ticki pozostałe do możliwości ponownego rozmnożenia. */
   reproCooldown = 0;
 
+  // --- walka ---
+  health: number;
+  /** Ticki pozostałe do możliwości ponownego ataku. */
+  attackCooldown = 0;
+
+  // --- przedmioty (jednosłotowy ekwipunek) ---
+  /** -1 = nic nie niesie; w przeciwnym razie typ przedmiotu (patrz world/items.ts). */
+  carriedItemType = -1;
+  /** Ticki pozostałe do możliwości ponownego chwytu/upuszczenia. */
+  carryCooldown = 0;
+
   // --- dziedziczność ---
   readonly genome: Float32Array;
   readonly brain: NeuralNetwork;
@@ -45,6 +56,14 @@ export class Agent {
   /** Ostatni wektor wejść sieci — wyłącznie do podglądu w UI. */
   readonly lastInputs = new Float32Array(INPUT_COUNT);
 
+  /**
+   * Pamięć agenta: stan ukryty warstwy rekurencyjnej, przenoszony między
+   * tickami. NIE jest częścią genomu — to stan uruchomieniowy, zerowany
+   * przy narodzinach. Dziedziczone są wyłącznie wagi, które PRODUKUJĄ
+   * użyteczną dynamikę tego stanu, nigdy sam stan.
+   */
+  readonly hiddenState: Float32Array;
+
   constructor(
     id: number,
     genome: Float32Array,
@@ -62,12 +81,15 @@ export class Agent {
   ) {
     this.id = id;
     this.genome = genome;
-    this.brain = new NeuralNetwork(genome, config.hiddenNeurons);
+    const shape = decodeBrainShape(genome, config);
+    this.brain = new NeuralNetwork(genome, config, shape);
+    this.hiddenState = new Float32Array(this.brain.recurrentWidth);
     this.phenotype = decodePhenotype(genome, config);
     this.x = opts.x;
     this.y = opts.y;
     this.heading = opts.heading;
     this.energy = opts.energy;
+    this.health = this.phenotype.maxHealth;
     this.motherId = opts.motherId ?? -1;
     this.fatherId = opts.fatherId ?? -1;
     this.generation = opts.generation ?? 0;

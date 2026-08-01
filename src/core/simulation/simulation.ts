@@ -8,6 +8,8 @@ import { BrainSystem } from '../systems/BrainSystem';
 import { MovementSystem } from '../systems/MovementSystem';
 import { CollisionSystem } from '../systems/CollisionSystem';
 import { FoodSystem } from '../systems/FoodSystem';
+import { CarrySystem } from '../systems/CarrySystem';
+import { AttackSystem } from '../systems/AttackSystem';
 import { EnergySystem } from '../systems/EnergySystem';
 import { DeathSystem } from '../systems/DeathSystem';
 import { ReproductionSystem } from '../systems/ReproductionSystem';
@@ -47,12 +49,14 @@ export class Simulation {
       new MovementSystem(), //     3. ruch
       new CollisionSystem(), //    4. kolizje
       new FoodSystem(), //         5. jedzenie
-      new EnergySystem(), //       6. zużycie energii
-      new DeathSystem(), //        7. śmierć
-      new ReproductionSystem(), // 8. rozmnażanie
-      new MutationSystem(), //     9. mutacje
+      new CarrySystem(), //        6. chwyt/upuszczenie
+      new AttackSystem(), //       7. walka
+      new EnergySystem(), //       8. zużycie energii + regeneracja zdrowia
+      new DeathSystem(), //        9. śmierć
+      new ReproductionSystem(), // 10. rozmnażanie
+      new MutationSystem(), //     11. mutacje
       new PopulationGuardSystem(), // opcjonalne zabezpieczenie
-      this.statistics, //          10. zapis statystyk
+      this.statistics, //          12. zapis statystyk
     ];
   }
 
@@ -139,9 +143,13 @@ export class Simulation {
       visionRadius: a.phenotype.visionRadius,
       metabolism: a.phenotype.metabolism,
       reproThreshold: a.phenotype.reproThreshold,
+      health: a.health,
+      maxHealth: a.phenotype.maxHealth,
+      carrying: a.carriedItemType >= 0,
       inputs: Array.from(a.lastInputs),
       outputs: Array.from(a.brain.outputs),
       hidden: Array.from(a.brain.getHiddenActivations()),
+      hiddenState: Array.from(a.hiddenState),
     };
   }
 

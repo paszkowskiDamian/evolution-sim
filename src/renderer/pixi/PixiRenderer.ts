@@ -5,6 +5,7 @@ import {
   createTextures,
   agentScaleFor,
   foodScaleFor,
+  rockScaleFor,
   AGENT_ANCHOR_X,
   AGENT_ANCHOR_Y,
   type SpriteTextures,
@@ -23,6 +24,9 @@ import { hslToRgb, clamp } from '../../core/utils/math';
 /** Minimalny rozmiar obiektu na ekranie w pikselach (przy dużym oddaleniu). */
 const MIN_AGENT_PX = 2.6;
 const MIN_FOOD_PX = 1.1;
+const MIN_ROCK_PX = 1.4;
+/** Kamienie nie mają promienia fizycznego w symulacji — to wyłącznie rozmiar wizualny. */
+const ROCK_VISUAL_RADIUS = 5;
 
 export class PixiRenderer {
   readonly camera = new Camera();
@@ -31,11 +35,13 @@ export class PixiRenderer {
 
   private worldLayer = new Container();
   private foodLayer = new Container();
+  private rockLayer = new Container();
   private agentLayer = new Container();
   private overlay = new Graphics();
   private border = new Graphics();
 
   private foodPool: Sprite[] = [];
+  private rockPool: Sprite[] = [];
   private agentPool: Sprite[] = [];
 
   selectedId: number | null = null;
@@ -64,6 +70,7 @@ export class PixiRenderer {
 
     this.worldLayer.addChild(this.border);
     this.worldLayer.addChild(this.foodLayer);
+    this.worldLayer.addChild(this.rockLayer);
     this.worldLayer.addChild(this.agentLayer);
     this.worldLayer.addChild(this.overlay);
     app.stage.addChild(this.worldLayer);
@@ -105,6 +112,7 @@ export class PixiRenderer {
 
     this.drawBorder(sim);
     this.drawFood(sim);
+    this.drawRocks(sim);
     this.drawAgents(sim);
     this.drawOverlay(sim);
 
@@ -148,6 +156,53 @@ export class PixiRenderer {
 
     for (let i = used; i < this.foodPool.length; i++) {
       this.foodPool[i].visible = false;
+    }
+  }
+
+  private drawRocks(sim: Simulation): void {
+    const tex = this.textures!;
+    const items = sim.world.items;
+    const radius = Math.max(ROCK_VISUAL_RADIUS, MIN_ROCK_PX / this.camera.zoom);
+    const scale = rockScaleFor(radius);
+    let used = 0;
+
+    const nextSprite = (): Sprite => {
+      let sprite = this.rockPool[used];
+      if (!sprite) {
+        sprite = new Sprite(tex.rock);
+        sprite.anchor.set(0.5);
+        sprite.tint = 0x8a8f9c;
+        this.rockLayer.addChild(sprite);
+        this.rockPool[used] = sprite;
+      }
+      sprite.visible = true;
+      sprite.scale.set(scale);
+      used++;
+      return sprite;
+    };
+
+    // Wolne kamienie leżące na ziemi.
+    for (let i = 0; i < items.capacity; i++) {
+      if (items.alive[i] === 0) continue;
+      const sprite = nextSprite();
+      sprite.x = items.xs[i];
+      sprite.y = items.ys[i];
+      sprite.alpha = 1;
+    }
+
+    // Kamienie niesione przez agentów — usunięte z ItemField, więc
+    // rysujemy je z pozycji agenta, lekko za nim (wzdłuż -heading).
+    for (const a of sim.world.agents) {
+      if (a.carriedItemType < 0) continue;
+      const sprite = nextSprite();
+      const behind = a.phenotype.radius + radius * 0.6;
+      sprite.x = a.x - Math.cos(a.heading) * behind;
+      sprite.y = a.y - Math.sin(a.heading) * behind;
+      sprite.alpha = 0.85;
+    }
+
+    for (let i = used; i < this.rockPool.length; i++) {
+      this.rockPool[i].visible = false;
     }
   }
 
@@ -210,6 +265,7 @@ export class PixiRenderer {
   destroy(): void {
     this.destroyed = true;
     this.foodPool = [];
+    this.rockPool = [];
     this.agentPool = [];
     if (this.app) {
       this.app.destroy(true, { children: true, texture: true });

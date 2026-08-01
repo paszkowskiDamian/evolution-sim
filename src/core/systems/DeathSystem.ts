@@ -5,8 +5,8 @@ import type { World } from '../world/world';
  * Śmierć — jedyny "sędzia" w symulacji.
  *
  * Nie ma tu żadnej oceny zachowania. Agent ginie, gdy skończy mu się
- * energia albo gdy dopadnie go starość. Wszystko, co przetrwa, przetrwało
- * bo działało — nie dlatego, że dostało wysoką notę.
+ * energia, gdy dopadnie go starość, albo gdy przegra walkę. Wszystko,
+ * co przetrwa, przetrwało bo działało — nie dlatego, że dostało wysoką notę.
  */
 export class DeathSystem implements System {
   readonly name = 'DeathSystem';
@@ -22,6 +22,15 @@ export class DeathSystem implements System {
         a.alive = false;
         world.events.deaths++;
         world.events.deathsByStarvation++;
+        world.recordLineage(a, world.tick);
+        anyDead = true;
+        continue;
+      }
+
+      if (a.health <= 0) {
+        a.alive = false;
+        world.events.deaths++;
+        world.events.deathsByCombat++;
         world.recordLineage(a, world.tick);
         anyDead = true;
         continue;
