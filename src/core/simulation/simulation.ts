@@ -1,0 +1,163 @@
+import type { SimulationConfig } from '../../config/simulationConfig';
+import { makeConfig } from '../../config/simulationConfig';
+import { World } from '../world/world';
+import type { System } from '../systems/System';
+import { SpatialIndexSystem } from '../systems/SpatialIndexSystem';
+import { SensorSystem } from '../systems/SensorSystem';
+import { BrainSystem } from '../systems/BrainSystem';
+import { MovementSystem } from '../systems/MovementSystem';
+import { CollisionSystem } from '../systems/CollisionSystem';
+import { FoodSystem } from '../systems/FoodSystem';
+import { EnergySystem } from '../systems/EnergySystem';
+import { DeathSystem } from '../systems/DeathSystem';
+import { ReproductionSystem } from '../systems/ReproductionSystem';
+import { MutationSystem } from '../systems/MutationSystem';
+import { PopulationGuardSystem } from '../systems/PopulationGuardSystem';
+import { StatisticsSystem } from '../systems/StatisticsSystem';
+import type { AgentView } from '../../shared/types';
+import { Agent } from '../agents/agent';
+
+/**
+ * Silnik symulacji.
+ *
+ * Nie zna Reacta, PixiJS ani DOM-u. Da się go uruchomić w Node
+ * (patrz `scripts/headless.ts`) i to jest test tej separacji.
+ *
+ * Kolejność systemów w ticku jest kontraktem — zmiana kolejności zmienia
+ * przebieg symulacji nawet przy tym samym seedzie.
+ */
+export class Simulation {
+  world: World;
+  readonly statistics = new StatisticsSystem();
+  private systems: System[] = [];
+
+  /** Czas wykonania ostatniego ticka w ms — do panelu wydajności. */
+  lastTickMs = 0;
+
+  constructor(config: Partial<SimulationConfig> = {}) {
+    this.world = new World(makeConfig(config));
+    this.systems = this.buildSystems();
+  }
+
+  private buildSystems(): System[] {
+    return [
+      new SpatialIndexSystem(), // 0. indeks przestrzenny
+      new SensorSystem(), //       1. sensory
+      new BrainSystem(), //        2. decyzja sieci neuronowej
+      new MovementSystem(), //     3. ruch
+      new CollisionSystem(), //    4. kolizje
+      new FoodSystem(), //         5. jedzenie
+      new EnergySystem(), //       6. zużycie energii
+      new DeathSystem(), //        7. śmierć
+      new ReproductionSystem(), // 8. rozmnażanie
+      new MutationSystem(), //     9. mutacje
+      new PopulationGuardSystem(), // opcjonalne zabezpieczenie
+      this.statistics, //          10. zapis statystyk
+    ];
+  }
+
+  get config(): SimulationConfig {
+    return this.world.config;
+  }
+
+  get tick(): number {
+    return this.world.tick;
+  }
+
+  /** Wykonuje jeden tick symulacji. */
+  step(): void {
+    const t0 = performance.now();
+    const world = this.world;
+    world.resetEvents();
+    world.tick++;
+    for (const system of this.systems) {
+      system.update(world);
+    }
+    this.lastTickMs = performance.now() - t0;
+  }
+
+  /** Wykonuje `n` ticków (do przyspieszania i biegów headless). */
+  run(n: number): void {
+    for (let i = 0; i < n; i++) this.step();
+  }
+
+  /** Restart z nową konfiguracją (albo tą samą — wtedy identyczny przebieg). */
+  reset(config?: Partial<SimulationConfig>): void {
+    const next = config ? makeConfig({ ...this.world.config, ...config }) : this.world.config;
+    this.world = new World(next);
+    this.statistics.reset();
+    this.systems = this.buildSystems();
+    this.lastTickMs = 0;
+  }
+
+  /**
+   * Zastępuje populację zadanym zestawem genomów.
+   *
+   * Służy do eksperymentów kontrolowanych ("wspólny ogród"): wpuszczamy
+   * dwie różne populacje do identycznego świata i porównujemy wyniki.
+   * Bez tego nie da się odróżnić prawdziwej adaptacji od zmiany warunków.
+   */
+  seedPopulation(genomes: Float32Array[]): void {
+    const world = this.world;
+    const cfg = world.config;
+    world.agents = [];
+    world.agentById.clear();
+    for (const genome of genomes) {
+      const copy = new Float32Array(genome);
+      const agent = new Agent(world.allocateAgentId(), copy, cfg, {
+        x: world.rng.range(0, cfg.worldSize),
+        y: world.rng.range(0, cfg.worldSize),
+        heading: world.rng.range(0, Math.PI * 2),
+        energy: cfg.startEnergy,
+        generation: 0,
+        bornAtTick: world.tick,
+      });
+      world.addAgent(agent);
+    }
+  }
+
+  /** Zrzut stanu agenta dla UI — kopia, nie referencja do silnika. */
+  getAgentView(id: number): AgentView | null {
+    const a = this.world.agentById.get(id);
+    if (!a || !a.alive) return null;
+    return {
+      id: a.id,
+      x: a.x,
+      y: a.y,
+      heading: a.heading,
+      speed: a.speed,
+      energy: a.energy,
+      age: a.age,
+      generation: a.generation,
+      motherId: a.motherId,
+      childrenCount: a.childrenCount,
+      foodEaten: a.foodEaten,
+      fitness: a.fitness,
+      radius: a.phenotype.radius,
+      hue: a.phenotype.hue,
+      maxSpeed: a.phenotype.maxSpeed,
+      visionRadius: a.phenotype.visionRadius,
+      metabolism: a.phenotype.metabolism,
+      reproThreshold: a.phenotype.reproThreshold,
+      inputs: Array.from(a.lastInputs),
+      outputs: Array.from(a.brain.outputs),
+      hidden: Array.from(a.brain.getHiddenActivations()),
+    };
+  }
+
+  /** Najbliższy żywy agent do punktu świata — obsługa klikania w kanwę. */
+  pickAgent(x: number, y: number, radius = 40): number | null {
+    let best = -1;
+    let bestD2 = radius * radius;
+    for (const a of this.world.agents) {
+      const dx = a.x - x;
+      const dy = a.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = a.id;
+      }
+    }
+    return best === -1 ? null : best;
+  }
+}
