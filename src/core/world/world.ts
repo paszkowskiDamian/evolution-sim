@@ -7,7 +7,7 @@ import { ItemField } from './items';
 import { TerrainGrid } from './terrain';
 import { createRandomGenome, genomeLength } from '../genetics/genome';
 import { mutate, makeMutationReport } from '../genetics/mutation';
-import { TAU, wrap, wrapDelta } from '../utils/math';
+import { TAU, wrap } from '../utils/math';
 
 /** Liczniki zdarzeń z pojedynczego ticka — czyszczone na jego początku. */
 export interface TickEvents {
@@ -366,23 +366,16 @@ export class World {
   // `this.terrain`, nie osobna logika tutaj.)
 
   /**
-   * Czy punkt leży wewnątrz jaskini (pustego wnętrza) którejś z gór —
-   * używane przez EnergySystem do biernej korzyści ze schronienia. Odległość
-   * liczona z zawinięciem (świat jest torusem), tak samo jak w `SpatialGrid`.
+   * Czy punkt leży w "schronieniu" — używane przez EnergySystem do biernej
+   * korzyści (szybsza regeneracja zdrowia, tańszy metabolizm). Definicja
+   * jest topologiczna, nie "odległość od góry": każda mała, otoczona ze
+   * wszystkich stron kieszonka terenu liczy się jednakowo, obojętnie czy to
+   * naturalna jaskinia górska, czy pomieszczenie zbudowane przez agentów
+   * (patrz `TerrainGrid.isShelterAt`) — nie ma tu żadnego specjalnego
+   * przypadku dla gór.
    */
   isInShelter(x: number, y: number): boolean {
-    const cfg = this.config;
-    const r2 = cfg.mountainInnerRadius * cfg.mountainInnerRadius;
-    for (const m of this.mountains) {
-      let dx = x - m.x;
-      let dy = y - m.y;
-      if (cfg.wrapEdges) {
-        dx = wrapDelta(dx, cfg.worldSize);
-        dy = wrapDelta(dy, cfg.worldSize);
-      }
-      if (dx * dx + dy * dy < r2) return true;
-    }
-    return false;
+    return this.terrain.isShelterAt(x, y, this.config.shelterMaxCells);
   }
 
   getMountains(): ReadonlyArray<{ x: number; y: number }> {

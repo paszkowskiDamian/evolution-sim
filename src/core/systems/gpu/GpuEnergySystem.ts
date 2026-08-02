@@ -13,8 +13,17 @@ const OUT_STRIDE = 4;
 /**
  * Odpowiednik `EnergySystem` na GPU — metabolizm, regeneracja zdrowia
  * i bonus ze schronienia (patrz `World.isInShelter`). Per-agent skalarna
- * arytmetyka plus mała pętla po górach (typowo kilkanaście) — bez zapisów
- * między agentami, więc bezpieczne pod względem równoległości.
+ * arytmetyka plus O(1) odczyt z przeliczonej na CPU mapy schronienia
+ * (patrz `TerrainGrid.getShelterCells`) — bez zapisów między agentami,
+ * więc bezpieczne pod względem równoległości.
+ *
+ * Sama klasyfikacja "czy komórka to schronienie" wymaga spójnych składowych
+ * całej siatki terenu (patrz `TerrainGrid.recomputeShelterMap`) — to
+ * z natury sekwencyjny algorytm grafowy, nie coś, co dałoby się rozsądnie
+ * rozbić na niezależne wątki GPU. Dlatego liczymy go RAZ na CPU (tylko gdy
+ * teren faktycznie się zmienił — wynik jest cache'owany) i wgrywamy jako
+ * gotową tablicę wyszukiwania; shader robi tylko indeksowanie po komórce.
+ *
  * NIEZWERYFIKOWANE NA PRAWDZIWYM SPRZĘCIE — patrz `GpuContext.ts`.
  */
 export class GpuEnergySystem implements System {
@@ -31,8 +40,8 @@ export class GpuEnergySystem implements System {
     const cfg = world.config;
     const device = this.ctx.device;
     const n = alive.length;
-    const mountains = world.getMountains();
-    const mountainCount = mountains.length;
+    const terrain = world.terrain;
+    const shelterCells = terrain.getShelterCells(cfg.shelterMaxCells);
     const refComplexity = referenceBrainComplexity(cfg);
     const pipeline = this.ensurePipeline(device);
 
@@ -47,20 +56,18 @@ export class GpuEnergySystem implements System {
       cfg.shelterMetabolismDiscount,
       cfg.shelterHealthRegenMultiplier,
       cfg.healthRegenRate,
-      cfg.mountainInnerRadius,
       cfg.worldSize,
+      terrain.cellSize,
       refComplexity,
     ]);
-    const metaU32 = new Uint32Array([cfg.wrapEdges ? 1 : 0, n, mountainCount, 0]);
+    const metaU32 = new Uint32Array([n, terrain.cols, 0, 0]);
     const metaBytes = new ArrayBuffer(metaF32.byteLength + metaU32.byteLength);
     new Float32Array(metaBytes, 0, metaF32.length).set(metaF32);
     new Uint32Array(metaBytes, metaF32.byteLength, metaU32.length).set(metaU32);
 
-    const mountainBuf32 = new Float32Array(Math.max(1, mountainCount * 2));
-    for (let i = 0; i < mountainCount; i++) {
-      mountainBuf32[i * 2] = mountains[i].x;
-      mountainBuf32[i * 2 + 1] = mountains[i].y;
-    }
+    // WGSL nie ma typu 8-bitowego w buforach storage — poszerzamy do u32.
+    const shelterBuf32 = new Uint32Array(shelterCells.length);
+    for (let i = 0; i < shelterCells.length; i++) shelterBuf32[i] = shelterCells[i];
 
     const agentIn = new Float32Array(n * IN_STRIDE);
     for (let i = 0; i < n; i++) {
@@ -82,7 +89,7 @@ export class GpuEnergySystem implements System {
     }
 
     const metaBuf = makeReadOnlyBuffer(device, new Uint32Array(metaBytes), 'energy-meta');
-    const mountainBuf = makeReadOnlyBuffer(device, mountainBuf32, 'energy-mountains');
+    const shelterBuf = makeReadOnlyBuffer(device, shelterBuf32, 'energy-shelter');
     const inBuf = makeReadOnlyBuffer(device, agentIn, 'energy-in');
     const outBuf = makeWritableBuffer(device, n * OUT_STRIDE * 4, 'energy-out');
 
@@ -90,7 +97,7 @@ export class GpuEnergySystem implements System {
       layout: pipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: metaBuf } },
-        { binding: 1, resource: { buffer: mountainBuf } },
+        { binding: 1, resource: { buffer: shelterBuf } },
         { binding: 2, resource: { buffer: inBuf } },
         { binding: 3, resource: { buffer: outBuf } },
       ],
@@ -115,7 +122,7 @@ export class GpuEnergySystem implements System {
     }
 
     metaBuf.destroy();
-    mountainBuf.destroy();
+    shelterBuf.destroy();
     inBuf.destroy();
     outBuf.destroy();
   }
@@ -137,18 +144,16 @@ const IN_STRIDE: u32 = ${IN_STRIDE}u;
 const OUT_STRIDE: u32 = ${OUT_STRIDE}u;
 
 @group(0) @binding(0) var<storage, read> metaRaw: array<u32>;
-@group(0) @binding(1) var<storage, read> mountains: array<f32>; // [x0,y0,x1,y1,...]
+@group(0) @binding(1) var<storage, read> shelterCells: array<u32>; // 1 = schronienie, [cy*cols+cx]
 @group(0) @binding(2) var<storage, read> agentIn: array<f32>;
 @group(0) @binding(3) var<storage, read_write> agentOut: array<f32>;
 
-fn wrapDelta(d: f32, size: f32) -> f32 {
-  let half = size * 0.5;
-  if (d > half) {
-    return d - size;
-  } else if (d < -half) {
-    return d + size;
+fn wrapf(v: f32, size: f32) -> f32 {
+  var x = v % size;
+  if (x < 0.0) {
+    x = x + size;
   }
-  return d;
+  return x;
 }
 
 @compute @workgroup_size(${WORKGROUP_SIZE})
@@ -163,12 +168,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let shelterMetabolismDiscount = bitcast<f32>(metaRaw[7]);
   let shelterHealthRegenMultiplier = bitcast<f32>(metaRaw[8]);
   let healthRegenRate = bitcast<f32>(metaRaw[9]);
-  let innerRadius = bitcast<f32>(metaRaw[10]);
-  let worldSize = bitcast<f32>(metaRaw[11]);
+  let worldSize = bitcast<f32>(metaRaw[10]);
+  let cellSize = bitcast<f32>(metaRaw[11]);
   let refComplexity = bitcast<f32>(metaRaw[12]);
-  let wrapEdges = metaRaw[13];
-  let agentCount = metaRaw[14];
-  let mountainCount = metaRaw[15];
+  let agentCount = metaRaw[13];
+  let cols = metaRaw[14];
 
   let i = gid.x;
   if (i >= agentCount) {
@@ -190,20 +194,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   var age = agentIn[base + 11];
   var reproCooldown = agentIn[base + 12];
 
-  var sheltered = false;
-  let innerR2 = innerRadius * innerRadius;
-  for (var m = 0u; m < mountainCount; m = m + 1u) {
-    var dx = x - mountains[m * 2u];
-    var dy = y - mountains[m * 2u + 1u];
-    if (wrapEdges == 1u) {
-      dx = wrapDelta(dx, worldSize);
-      dy = wrapDelta(dy, worldSize);
-    }
-    if (dx * dx + dy * dy < innerR2) {
-      sheltered = true;
-      break;
-    }
-  }
+  let cx = u32(floor(wrapf(x, worldSize) / cellSize)) % cols;
+  let cy = u32(floor(wrapf(y, worldSize) / cellSize)) % cols;
+  let sheltered = shelterCells[cy * cols + cx] == 1u;
 
   let bodyFactor = (radius / rMax) * (radius / rMax);
   let visionFactor = visionRadius / globalVision;

@@ -1,9 +1,8 @@
 import type { System } from './System';
 import type { World } from '../world/world';
-import { makeNearestResult, queryNearest } from '../utils/spatialHash';
-// queryNearest zostaje dla jedzenia; sąsiadów liczymy jednym własnym przejściem.
 import { normalizeAngle, clamp } from '../utils/math';
 import { FOOD_TYPE } from '../world/items';
+import { VisibilityCandidates } from '../utils/visibility';
 
 /**
  * Zbiera wejścia sieci neuronowej każdego agenta.
@@ -13,18 +12,27 @@ import { FOOD_TYPE } from '../world/items';
  * w swoim promieniu widzenia. To warunek konieczny, żeby zachowania
  * mogły być emergentne, a nie odczytane z gotowej mapy.
  *
+ * Sensory na obiekty (jedzenie, agent, partner, kamień) respektują ŚCIANY:
+ * agent nie "widzi" przez lity teren, dokładnie jak w prawdziwym świecie —
+ * jeśli najbliższy kandydat jest zasłonięty (patrz `TerrainGrid.hasLineOfSight`),
+ * sensor szuka kolejnego najbliższego WIDOCZNEGO, aż do wyczerpania kandydatów
+ * w zasięgu wzroku (patrz `VisibilityCandidates`). "Zagęszczenie" jest
+ * jedynym wyjątkiem — to zgrubne wyczucie tłoku, nie namierzanie
+ * konkretnego celu, więc zostaje bez filtrowania linii wzroku.
+ *
  * Kolejność wejść musi odpowiadać SENSOR_LABELS z neural/network.ts.
  */
 export class SensorSystem implements System {
   readonly name = 'SensorSystem';
-  private readonly nearestFood = makeNearestResult();
-  private readonly nearestAgent = makeNearestResult();
-  private readonly nearestItem = makeNearestResult();
-  private readonly nearestMate = makeNearestResult();
+  private readonly foodCandidates = new VisibilityCandidates();
+  private readonly agentCandidates = new VisibilityCandidates();
+  private readonly mateCandidates = new VisibilityCandidates();
+  private readonly itemCandidates = new VisibilityCandidates();
 
   update(world: World): void {
     const cfg = world.config;
     const rng = world.rng;
+    const terrain = world.terrain;
 
     for (const a of world.agents) {
       if (!a.alive) continue;
@@ -36,9 +44,13 @@ export class SensorSystem implements System {
       input[2] = clamp(a.age / cfg.maxAge, 0, 1) * 2 - 1;
       input[3] = (a.speed / a.phenotype.maxSpeed) * 2 - 1;
 
-      // --- najbliższe jedzenie ---
-      const f = queryNearest(world.foodGrid, a.x, a.y, vision, this.nearestFood);
-      if (f.found) {
+      // --- najbliższe WIDOCZNE jedzenie ---
+      this.foodCandidates.reset();
+      world.foodGrid.forEachInRadius(a.x, a.y, vision, (id, dx, dy, d2) => {
+        this.foodCandidates.add(id, dx, dy, d2);
+      });
+      const f = this.foodCandidates.pickNearestVisible(terrain, a.x, a.y);
+      if (f) {
         const dist = Math.sqrt(f.dist2);
         const bearing = normalizeAngle(Math.atan2(f.dy, f.dx) - a.heading);
         input[4] = Math.sin(bearing);
@@ -50,46 +62,29 @@ export class SensorSystem implements System {
         input[6] = 0;
       }
 
-      // --- najbliższy inny agent + zagęszczenie + najbliższy partner ---
-      // Jedno przejście po siatce liczy wszystkie trzy naraz. Rozbicie tego
-      // na osobne zapytania mnożyło koszt najdroższego systemu w ticku.
-      const n = this.nearestAgent;
-      n.found = false;
-      n.dist2 = Infinity;
-      const mate = this.nearestMate;
-      mate.found = false;
-      mate.dist2 = Infinity;
+      // --- najbliższy WIDOCZNY inny agent + zagęszczenie + najbliższy WIDOCZNY partner ---
+      // Jedno przejście po siatce zbiera kandydatów do obu naraz. Rozbicie
+      // tego na osobne zapytania mnożyło koszt najdroższego systemu w ticku.
+      this.agentCandidates.reset();
+      this.mateCandidates.reset();
       let neighbours = 0;
       const densityRadius2 = (vision * 0.5) * (vision * 0.5);
       const myGender = a.phenotype.gender;
       world.agentGrid.forEachInRadius(a.x, a.y, vision, (id, dx, dy, d2) => {
         if (id === a.id) return;
-        if (d2 < n.dist2) {
-          n.dist2 = d2;
-          n.dx = dx;
-          n.dy = dy;
-          n.id = id;
-          n.found = true;
-        }
+        this.agentCandidates.add(id, dx, dy, d2);
         if (d2 <= densityRadius2) neighbours++;
-        // Partner = najbliższy agent PRZECIWNEJ płci — osobne zapytanie
-        // (a nie ten sam co "najbliższy agent") bo najbliższy agent bywa
-        // rywalem tej samej płci, bezużytecznym jako cel nawigacji do
-        // rozmnażania.
-        if (d2 < mate.dist2) {
-          const other = world.agentById.get(id);
-          if (other && other.phenotype.gender !== myGender) {
-            mate.dist2 = d2;
-            mate.dx = dx;
-            mate.dy = dy;
-            mate.id = id;
-            mate.found = true;
-          }
+        // Partner = najbliższy agent PRZECIWNEJ płci — osobny bufor (a nie
+        // ten sam co "najbliższy agent") bo najbliższy agent bywa rywalem
+        // tej samej płci, bezużytecznym jako cel nawigacji do rozmnażania.
+        const other = world.agentById.get(id);
+        if (other && other.phenotype.gender !== myGender) {
+          this.mateCandidates.add(id, dx, dy, d2);
         }
-        return;
       });
 
-      if (n.found) {
+      const n = this.agentCandidates.pickNearestVisible(terrain, a.x, a.y);
+      if (n) {
         const dist = Math.sqrt(n.dist2);
         const bearing = normalizeAngle(Math.atan2(n.dy, n.dx) - a.heading);
         input[7] = Math.sin(bearing);
@@ -110,9 +105,13 @@ export class SensorSystem implements System {
       // --- jak bardzo zapełniony ekwipunek ---
       input[12] = (a.carriedCount / cfg.maxCarryItems) * 2 - 1;
 
-      // --- najbliższy kamień (lustrzane odbicie sensora jedzenia) ---
-      const it = queryNearest(world.itemGrid, a.x, a.y, vision, this.nearestItem);
-      if (it.found) {
+      // --- najbliższy WIDOCZNY kamień (lustrzane odbicie sensora jedzenia) ---
+      this.itemCandidates.reset();
+      world.itemGrid.forEachInRadius(a.x, a.y, vision, (id, dx, dy, d2) => {
+        this.itemCandidates.add(id, dx, dy, d2);
+      });
+      const it = this.itemCandidates.pickNearestVisible(terrain, a.x, a.y);
+      if (it) {
         const dist = Math.sqrt(it.dist2);
         const bearing = normalizeAngle(Math.atan2(it.dy, it.dx) - a.heading);
         input[13] = Math.sin(bearing);
@@ -130,8 +129,9 @@ export class SensorSystem implements System {
       // --- własna płeć ---
       input[17] = myGender === 1 ? 1 : -1;
 
-      // --- najbliższy partner (przeciwna płeć) ---
-      if (mate.found) {
+      // --- najbliższy WIDOCZNY partner (przeciwna płeć) ---
+      const mate = this.mateCandidates.pickNearestVisible(terrain, a.x, a.y);
+      if (mate) {
         const dist = Math.sqrt(mate.dist2);
         const bearing = normalizeAngle(Math.atan2(mate.dy, mate.dx) - a.heading);
         input[18] = Math.sin(bearing);
@@ -156,8 +156,11 @@ export class SensorSystem implements System {
       // --- najbliższa ściana (lita komórka terenu) — zasięg NIEZALEŻNY od
       // ewoluowalnego wzroku (patrz cfg.wallSenseRadius): ściana jest dużą,
       // fizyczną przeszkodą, którą agent "czuje" z bliska niezależnie od
-      // tego, jak daleko sięga jego wzrok na drobne obiekty.
-      const wall = world.terrain.findNearestSolid(a.x, a.y, cfg.wallSenseRadius);
+      // tego, jak daleko sięga jego wzrok na drobne obiekty. Ten sensor
+      // celowo NIE przechodzi przez filtr linii wzroku — szuka WPROST
+      // najbliższej litej komórki, więc z definicji nie może być "za"
+      // inną ścianą (byłaby wtedy bliższym wynikiem).
+      const wall = terrain.findNearestSolid(a.x, a.y, cfg.wallSenseRadius);
       if (wall) {
         const bearing = normalizeAngle(Math.atan2(wall.dy, wall.dx) - a.heading);
         input[22] = Math.sin(bearing);

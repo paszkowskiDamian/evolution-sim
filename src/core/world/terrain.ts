@@ -25,11 +25,30 @@ export class TerrainGrid {
   readonly cells: Uint8Array;
   private readonly worldSize: number;
 
+  /**
+   * Mapa "schronienia" (patrz `isShelterAt`) — 1 = pusta komórka należąca do
+   * MAŁEGO otoczonego kieszonki (jaskinia, zbudowane pomieszczenie...),
+   * 0 = lita komórka LUB pusta komórka będąca częścią wielkiego, otwartego
+   * świata. Przeliczana leniwie (`ensureShelterMap`), unieważniana przy
+   * każdej zmianie terenu (`set`) — kopanie i budowanie mogą zarówno
+   * scalić kieszonkę ze światem zewnętrznym, jak i odciąć nowy fragment.
+   */
+  private shelterCells: Uint8Array | null = null;
+  private shelterDirty = true;
+  private shelterMaxCells = -1;
+  private readonly shelterVisited: Uint8Array;
+  private readonly shelterStack: Int32Array;
+  private readonly shelterComponent: Int32Array;
+
   constructor(worldSize: number, cellSize: number) {
     this.worldSize = worldSize;
     this.cellSize = cellSize;
     this.cols = Math.max(1, Math.round(worldSize / cellSize));
     this.cells = new Uint8Array(this.cols * this.cols);
+    const n = this.cols * this.cols;
+    this.shelterVisited = new Uint8Array(n);
+    this.shelterStack = new Int32Array(n);
+    this.shelterComponent = new Int32Array(n);
   }
 
   private wrapCell(c: number): number {
@@ -59,6 +78,7 @@ export class TerrainGrid {
 
   set(cx: number, cy: number, value: number): void {
     this.cells[this.index(cx, cy)] = value;
+    this.shelterDirty = true;
   }
 
   isSolidCell(cx: number, cy: number): boolean {
@@ -71,6 +91,7 @@ export class TerrainGrid {
 
   clear(): void {
     this.cells.fill(TILE_EMPTY);
+    this.shelterDirty = true;
   }
 
   /**
@@ -166,5 +187,155 @@ export class TerrainGrid {
     const dx = Math.max(centerDx - half, Math.min(0, centerDx + half));
     const dy = Math.max(centerDy - half, Math.min(0, centerDy + half));
     return { dx, dy, dist2: dx * dx + dy * dy };
+  }
+
+  // ------------------------------------------------------------ schronienie
+
+  /**
+   * Czy `(x,y)` leży w PUSTEJ komórce należącej do małej, otoczonej ze
+   * wszystkich stron kieszonki (jaskinia górska, zbudowane pomieszczenie —
+   * cokolwiek, bez rozróżniania "naturalne" od "zbudowane") — używane przez
+   * EnergySystem do biernej korzyści ze schronienia.
+   *
+   * Definicja jest topologiczna, nie geometryczna: liczymy SPÓJNE SKŁADOWE
+   * pustych komórek (4-sąsiedztwo) i każdą składową mniejszą niż
+   * `maxCells` uznajemy za "wnętrze"; ogromna spójna składowa obejmująca
+   * większość mapy to po prostu otwarty świat. To działa jednakowo dla
+   * naturalnych jaskiń i dowolnej struktury dobudowanej przez agentów —
+   * nie ma specjalnego przypadku dla gór.
+   */
+  isShelterAt(x: number, y: number, maxCells: number): boolean {
+    this.ensureShelterMap(maxCells);
+    return this.shelterCells![this.index(this.cellX(x), this.cellY(y))] === 1;
+  }
+
+  /** Surowa mapa schronienia (1 = wnętrze) — do wgrania na GPU (GpuEnergySystem). */
+  getShelterCells(maxCells: number): Uint8Array {
+    this.ensureShelterMap(maxCells);
+    return this.shelterCells!;
+  }
+
+  private ensureShelterMap(maxCells: number): void {
+    if (!this.shelterDirty && this.shelterMaxCells === maxCells && this.shelterCells) return;
+    this.recomputeShelterMap(maxCells);
+    this.shelterDirty = false;
+    this.shelterMaxCells = maxCells;
+  }
+
+  /**
+   * Przeliczenie PEŁNEJ mapy — O(liczba komórek), ale wywoływane tylko gdy
+   * teren faktycznie się zmienił (kopanie/budowanie), nie co tick. Prostsze
+   * i bezpieczniejsze niż przyrostowe utrzymywanie spójnych składowych
+   * (usunięcie komórki może ROZDZIELIĆ składową na kilka — to wymagałoby
+   * pełnego przeszukania i tak), a kopanie/budowanie są rzadkie względem
+   * liczby ticków.
+   */
+  private recomputeShelterMap(maxCells: number): void {
+    const n = this.cells.length;
+    if (!this.shelterCells || this.shelterCells.length !== n) {
+      this.shelterCells = new Uint8Array(n);
+    } else {
+      this.shelterCells.fill(0);
+    }
+    const visited = this.shelterVisited;
+    visited.fill(0);
+    const stack = this.shelterStack;
+    const component = this.shelterComponent;
+
+    for (let start = 0; start < n; start++) {
+      if (visited[start] || this.cells[start] === TILE_ROCK) continue;
+
+      let stackLen = 0;
+      let compLen = 0;
+      visited[start] = 1;
+      stack[stackLen++] = start;
+
+      while (stackLen > 0) {
+        const i = stack[--stackLen];
+        component[compLen++] = i;
+        const cy = Math.floor(i / this.cols);
+        const cx = i % this.cols;
+        const neighbors = [
+          this.index(cx + 1, cy),
+          this.index(cx - 1, cy),
+          this.index(cx, cy + 1),
+          this.index(cx, cy - 1),
+        ];
+        for (const nb of neighbors) {
+          if (visited[nb] || this.cells[nb] === TILE_ROCK) continue;
+          visited[nb] = 1;
+          stack[stackLen++] = nb;
+        }
+      }
+
+      if (compLen < maxCells) {
+        for (let i = 0; i < compLen; i++) this.shelterCells[component[i]] = 1;
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ linia wzroku
+
+  /**
+   * Czy odcinek OD `(x0,y0)` DO `(x0+dx, y0+dy)` przechodzi przez jakąkolwiek
+   * litą komórkę — używane przez SensorSystem, żeby agent nie "widział"
+   * przez ściany. `dx`/`dy` to już rozwiązany (najkrótszą drogą po torusie)
+   * wektor przesunięcia — DOKŁADNIE to, co zwracają zapytania przestrzenne
+   * (`SpatialGrid.forEachInRadius`), więc wywołujący nie musi nic dodatkowo
+   * zawijać.
+   *
+   * Implementacja to standardowe przejście siatki (Amanatides–Woo/DDA):
+   * odwiedza KAŻDĄ komórkę, przez którą faktycznie przechodzi odcinek, bez
+   * ryzyka "przeskoczenia" cienkiej (1-komórkowej) ściany. Krok DOKŁADNIE
+   * po przekątnej (przez sam róg dwóch litych komórek) traktujemy jako
+   * zablokowany, jeśli KTÓRAKOLWIEK z tych dwóch komórek jest lita — to
+   * samo ograniczenie, które fizycznie ma agent w `TerrainCollisionSystem`
+   * (nie da się przecisnąć po przekątnej między dwiema litymi komórkami),
+   * więc linia wzroku nie powinna "widzieć" tamtędy, mimo że sama w sobie
+   * ma zerową szerokość.
+   */
+  hasLineOfSight(x0: number, y0: number, dx: number, dy: number): boolean {
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1e-9) return true;
+
+    let cx = Math.floor(x0 / this.cellSize);
+    let cy = Math.floor(y0 / this.cellSize);
+    const endCx = Math.floor((x0 + dx) / this.cellSize);
+    const endCy = Math.floor((y0 + dy) / this.cellSize);
+
+    const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+
+    const tDeltaX = dx !== 0 ? Math.abs(this.cellSize / dx) : Infinity;
+    const tDeltaY = dy !== 0 ? Math.abs(this.cellSize / dy) : Infinity;
+
+    const nextBoundaryX = stepX > 0 ? (cx + 1) * this.cellSize : cx * this.cellSize;
+    const nextBoundaryY = stepY > 0 ? (cy + 1) * this.cellSize : cy * this.cellSize;
+
+    let tMaxX = dx !== 0 ? (nextBoundaryX - x0) / dx : Infinity;
+    let tMaxY = dy !== 0 ? (nextBoundaryY - y0) / dy : Infinity;
+
+    // Zabezpieczenie przed nieskończoną pętlą przy zdegenerowanych wejściach.
+    const maxSteps = (Math.abs(cx - endCx) + Math.abs(cy - endCy) + 4) * 2;
+    let steps = 0;
+
+    while ((cx !== endCx || cy !== endCy) && steps < maxSteps) {
+      steps++;
+      if (Math.abs(tMaxX - tMaxY) < 1e-9) {
+        if (this.isSolidCell(cx + stepX, cy) || this.isSolidCell(cx, cy + stepY)) return false;
+        cx += stepX;
+        cy += stepY;
+        tMaxX += tDeltaX;
+        tMaxY += tDeltaY;
+      } else if (tMaxX < tMaxY) {
+        cx += stepX;
+        tMaxX += tDeltaX;
+      } else {
+        cy += stepY;
+        tMaxY += tDeltaY;
+      }
+      if (this.isSolidCell(cx, cy)) return false;
+    }
+    return true;
   }
 }

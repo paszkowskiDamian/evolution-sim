@@ -64,9 +64,17 @@ export interface SimulationConfig {
   mountainOuterRadius: number;
   /** Ułamek spawnów jedzenia kierowany do wnętrza losowej góry (jedzenie "za ścianą"). */
   caveFoodFraction: number;
-  /** Mnożnik regeneracji zdrowia wewnątrz jaskini (bierna korzyść ze schronienia). */
+  /**
+   * Próg wielkości (w komórkach terenu) rozróżniający "schronienie" (mała,
+   * otoczona ze wszystkich stron kieszonka — jaskinia GÓRSKA albo dowolne
+   * pomieszczenie zbudowane przez agentów) od zwykłego otwartego świata.
+   * Definicja jest czysto topologiczna (spójne składowe pustych komórek —
+   * patrz `TerrainGrid.isShelterAt`), więc działa jednakowo dla obu.
+   */
+  shelterMaxCells: number;
+  /** Mnożnik regeneracji zdrowia wewnątrz schronienia (bierna korzyść). */
   shelterHealthRegenMultiplier: number;
-  /** Mnożnik kosztu metabolizmu wewnątrz jaskini (<1 = taniej istnieć w schronieniu). */
+  /** Mnożnik kosztu metabolizmu wewnątrz schronienia (<1 = taniej tam istnieć). */
   shelterMetabolismDiscount: number;
   /** Zasięg sensora "najbliższa ściana" — niezależny od ewoluowalnego wzroku. */
   wallSenseRadius: number;
@@ -217,6 +225,11 @@ export const defaultConfig: SimulationConfig = {
   mountainInnerRadius: 100,
   mountainOuterRadius: 150,
   caveFoodFraction: 0.12,
+  // Naturalna jaskinia górska ma ok. 50 komórek (π·100²/25²). 120 daje
+  // wygodny margines na trochę większe pomieszczenia zbudowane przez
+  // agentów, ale jest wciąż o rzędy wielkości mniejsze niż otwarty świat
+  // (siatka 3000x3000 przy cellSize=25 to 14400 komórek).
+  shelterMaxCells: 120,
   shelterHealthRegenMultiplier: 3,
   shelterMetabolismDiscount: 0.6,
   wallSenseRadius: 140,
