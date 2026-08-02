@@ -1,19 +1,29 @@
 import { useState } from 'react';
 import type { SimulationConfig } from '../../config/simulationConfig';
-import type { GpuStatus } from '../useSimulation';
+import type { EditTool, GpuStatus } from '../useSimulation';
 
 interface Props {
   running: boolean;
   speed: number;
   config: SimulationConfig;
   gpuStatus: GpuStatus;
+  editTool: EditTool;
   onRunning: (v: boolean) => void;
   onSpeed: (v: number) => void;
   onStep: () => void;
   onReset: (overrides: Partial<SimulationConfig>) => void;
   onFit: () => void;
   onToggleGpu: () => void;
+  onEditTool: (tool: EditTool) => void;
 }
+
+const EDIT_TOOLS: Array<{ key: EditTool; label: string }> = [
+  { key: 'none', label: '✋ Nawiguj' },
+  { key: 'addFood', label: '🌿 Dodaj jedzenie' },
+  { key: 'removeFood', label: '🚫 Usuń jedzenie' },
+  { key: 'addWall', label: '🧱 Buduj ścianę' },
+  { key: 'removeWall', label: '⛏ Kop ścianę' },
+];
 
 /** Parametry, które da się sensownie zmieniać z UI (reszta — w pliku config). */
 const TUNABLE: Array<{
@@ -69,12 +79,14 @@ export function Controls({
   speed,
   config,
   gpuStatus,
+  editTool,
   onRunning,
   onSpeed,
   onStep,
   onReset,
   onFit,
   onToggleGpu,
+  onEditTool,
 }: Props) {
   const [draft, setDraft] = useState<Partial<SimulationConfig>>({});
   const value = (key: keyof SimulationConfig): number =>
@@ -94,6 +106,28 @@ export function Controls({
         </button>
         <button onClick={onFit}>⤢ Dopasuj</button>
       </div>
+
+      <label className="field">
+        <span>
+          narzędzie edycji: <b>{EDIT_TOOLS.find((t) => t.key === editTool)?.label}</b>
+        </span>
+        <div className="row-buttons">
+          {EDIT_TOOLS.map((t) => (
+            <button
+              key={t.key}
+              className={t.key === editTool ? 'chip active' : 'chip'}
+              onClick={() => onEditTool(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {editTool !== 'none' && (
+          <p className="muted small">
+            Dotknij/przeciągnij po świecie, żeby malować. Przeciąganie dwoma palcami nadal zoomuje.
+          </p>
+        )}
+      </label>
 
       <label className="field">
         <span>

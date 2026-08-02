@@ -70,6 +70,20 @@ const UI_REFRESH_MS = 150;
  */
 export type GpuStatus = 'cpu' | 'gpu' | 'unsupported';
 
+/**
+ * Narzędzie "boskiej ręki" — malowanie/wymazywanie jedzenia i terenu wprost
+ * na płótnie. `'none'` to zwykły tryb (przeciąganie = pan, dotknięcie
+ * agenta = zaznaczenie); dowolne inne narzędzie PRZEJMUJE jednopalcowe
+ * gesty na malowanie (patrz efekt interakcji niżej) — drugi palec nadal
+ * służy do zoomu, niezależnie od aktywnego narzędzia.
+ */
+export type EditTool = 'none' | 'addFood' | 'removeFood' | 'addWall' | 'removeWall';
+
+/** Odstęp (w jednostkach świata) między kolejnymi "stemplami" przy przeciąganiu. */
+const PAINT_SPACING = 20;
+/** Promień wyszukiwania jedzenia do usunięcia narzędziem "wymaż jedzenie". */
+const REMOVE_FOOD_RADIUS = 25;
+
 export function useSimulation() {
   const simRef = useRef<Simulation | null>(null);
   if (simRef.current === null) simRef.current = new Simulation({}, SEED_GENOME);
@@ -80,6 +94,7 @@ export function useSimulation() {
   const speedRef = useRef(1);
   const stepOnceRef = useRef(false);
   const tickBusyRef = useRef(false);
+  const editToolRef = useRef<EditTool>('none');
 
   const [ready, setReady] = useState(false);
   const [running, setRunningState] = useState(true);
@@ -88,6 +103,7 @@ export function useSimulation() {
   const [selected, setSelected] = useState<AgentView | null>(null);
   const [config, setConfig] = useState<SimulationConfig>(defaultConfig);
   const [gpuStatus, setGpuStatus] = useState<GpuStatus>('cpu');
+  const [editTool, setEditToolState] = useState<EditTool>('none');
   const selectedIdRef = useRef<number | null>(null);
 
   // ---------------------------------------------------------------- pętla
@@ -196,23 +212,63 @@ export function useSimulation() {
     // nie istnieje na dotyku.
     const pointers = new Map<number, { x: number; y: number }>();
     let dragging = false;
+    let painting = false;
     let moved = 0;
     let lastX = 0;
     let lastY = 0;
     let pinchDist = 0;
+    let lastPaintX = 0;
+    let lastPaintY = 0;
+
+    // Wymalowuje/wymazuje pod jednym punktem ekranu narzędziem aktualnie
+    // uzbrojonym w editToolRef — zwraca `false`, jeśli narzędzie jest
+    // wyłączone (`'none'`), żeby wywołujący mógł spaść z powrotem na
+    // zwykłe zachowanie (pan/zaznaczenie).
+    const applyEditTool = (clientX: number, clientY: number): boolean => {
+      const tool = editToolRef.current;
+      if (tool === 'none') return false;
+      const renderer = rendererRef.current;
+      const sim = simRef.current;
+      if (!renderer || !sim) return false;
+      const rect = host.getBoundingClientRect();
+      const world = renderer.camera.screenToWorld(clientX - rect.left, clientY - rect.top);
+      switch (tool) {
+        case 'addFood':
+          sim.world.addFoodAt(world.x, world.y);
+          break;
+        case 'removeFood':
+          sim.world.removeFoodNear(world.x, world.y, REMOVE_FOOD_RADIUS);
+          break;
+        case 'addWall':
+          sim.world.addWallAt(world.x, world.y);
+          break;
+        case 'removeWall':
+          sim.world.removeWallAt(world.x, world.y);
+          break;
+      }
+      return true;
+    };
 
     const onPointerDown = (e: PointerEvent) => {
       host.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
       if (pointers.size === 1) {
+        if (applyEditTool(e.clientX, e.clientY)) {
+          painting = true;
+          dragging = false;
+          lastPaintX = e.clientX;
+          lastPaintY = e.clientY;
+          return;
+        }
         dragging = true;
         moved = 0;
         lastX = e.clientX;
         lastY = e.clientY;
       } else if (pointers.size === 2) {
-        // Drugi palec dotknął ekranu — koniec przeciągania, start pinch-zoomu.
+        // Drugi palec dotknął ekranu — koniec przeciągania/malowania, start pinch-zoomu.
         dragging = false;
+        painting = false;
         const [p1, p2] = Array.from(pointers.values());
         pinchDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
       }
@@ -236,6 +292,23 @@ export function useSimulation() {
         return;
       }
 
+      if (painting) {
+        // Stempluj tylko co PAINT_SPACING jednostek świata przeciągnięcia,
+        // nie co klatkę — inaczej jeden szybki gest zalałby cały pas jedną
+        // ciągłą smugą jedzenia/ścian zamiast rzadkich, kontrolowanych stempli.
+        const renderer = rendererRef.current;
+        if (renderer) {
+          const dx = e.clientX - lastPaintX;
+          const dy = e.clientY - lastPaintY;
+          if (Math.hypot(dx, dy) * renderer.camera.zoom >= PAINT_SPACING) {
+            applyEditTool(e.clientX, e.clientY);
+            lastPaintX = e.clientX;
+            lastPaintY = e.clientY;
+          }
+        }
+        return;
+      }
+
       if (!dragging) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -250,6 +323,11 @@ export function useSimulation() {
       pointers.delete(e.pointerId);
       host.releasePointerCapture(e.pointerId);
       if (!wasTracked) return;
+
+      if (painting) {
+        painting = false;
+        return;
+      }
 
       if (pointers.size === 1) {
         // Wracamy z pinch-zoomu do jednego palca — wznów przeciąganie od
@@ -316,6 +394,11 @@ export function useSimulation() {
     stepOnceRef.current = true;
   }, []);
 
+  const setEditTool = useCallback((tool: EditTool) => {
+    editToolRef.current = tool;
+    setEditToolState(tool);
+  }, []);
+
   const reset = useCallback(
     (overrides: Partial<SimulationConfig> = {}) => {
       const sim = simRef.current!;
@@ -369,6 +452,8 @@ export function useSimulation() {
     selected,
     config,
     gpuStatus,
+    editTool,
+    setEditTool,
     setRunning,
     setSpeed,
     stepOnce,

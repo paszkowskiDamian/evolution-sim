@@ -142,7 +142,51 @@ button.chip.active { border-color: var(--accent); color: var(--accent); }
 }
 .hud b { color: var(--text); }
 
+.mobile-tabbar { display: none; }
+
 @media (max-width: 1100px) {
-  .app { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; }
-  .sidebar { display: none; }
+  .app { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .stage { grid-column: 1; grid-row: 1; }
+
+  /* Na wąskim ekranie panele boczne stają się pełnoszerokimi zakładkami
+     zadokowanymi nad paskiem zakładek, zamiast być całkiem ukryte (stary
+     błąd: `.sidebar { display: none }` chowało kompletnie panel agenta —
+     "widzę statystyki zaznaczonego agenta" było wtedy niewykonalne). */
+  .sidebar {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 44px;
+    max-height: 55vh;
+    border: none;
+    border-top: 1px solid var(--line);
+    z-index: 5;
+  }
+  /* Aside bez aktywnej zakładki wewnątrz znika całkowicie (nie zostaje
+     po nim pusta, ale wciąż zajmująca miejsce/mająca obramowanie belka). */
+  .sidebar:not(:has(.mobile-panel.is-active)) { display: none; }
+
+  .mobile-panel { display: none; }
+  .mobile-panel.is-active { display: block; }
+
+  .mobile-tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 44px;
+    z-index: 6;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+  }
+  .mobile-tabbar button {
+    flex: 1;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    font-size: 12px;
+  }
+  .mobile-tabbar button.active { color: var(--accent); box-shadow: inset 0 2px 0 var(--accent); }
 }
