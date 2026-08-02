@@ -3,6 +3,16 @@ import { Simulation } from '../core/simulation/simulation';
 import { PixiRenderer } from '../renderer/pixi/PixiRenderer';
 import { defaultConfig, type SimulationConfig } from '../config/simulationConfig';
 import type { AgentView, StatsSample } from '../shared/types';
+import seedGenomeData from '../config/seedGenome.json';
+
+/**
+ * Genom-przodek wygenerowany przez `npm run evolve` (patrz scripts/evolve.ts).
+ * Startowa populacja to zmutowane kopie tego jednego, sprawdzonego genomu —
+ * nie czysto losowa geneza. `World` po cichu wraca do losowej genezy, jeśli
+ * długość genomu nie pasuje do aktualnej konfiguracji (np. inna głębokość
+ * mózgu po zmianie configu), więc to bezpieczne nawet po edycji parametrów.
+ */
+const SEED_GENOME = new Float32Array(seedGenomeData.genome);
 
 /**
  * Spina silnik z rendererem i Reactem.
@@ -53,7 +63,7 @@ const UI_REFRESH_MS = 150;
 
 export function useSimulation() {
   const simRef = useRef<Simulation | null>(null);
-  if (simRef.current === null) simRef.current = new Simulation();
+  if (simRef.current === null) simRef.current = new Simulation({}, SEED_GENOME);
 
   const rendererRef = useRef<PixiRenderer | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);

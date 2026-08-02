@@ -4,7 +4,8 @@ import { SpatialGrid } from '../utils/spatialHash';
 import { Agent } from '../agents/agent';
 import { FoodField } from './food';
 import { ItemField, ROCK_TYPE } from './items';
-import { createRandomGenome } from '../genetics/genome';
+import { createRandomGenome, genomeLength } from '../genetics/genome';
+import { mutate, makeMutationReport } from '../genetics/mutation';
 import { TAU, wrap } from '../utils/math';
 
 /** Liczniki zdarzeń z pojedynczego ticka — czyszczone na jego początku. */
@@ -112,7 +113,18 @@ export class World {
   private clusters: FoodCluster[] = [];
   maxGeneration = 0;
 
-  constructor(config: SimulationConfig) {
+  /**
+   * Genom "przodka" do zasiania startowej populacji (patrz `scripts/evolve.ts`)
+   * — zamiast czysto losowej genezy, każdy startowy agent to zmutowana kopia
+   * jednego sprawdzonego genomu. `null`, gdy nieużywany albo gdy jego długość
+   * nie pasuje do aktualnej konfiguracji (np. inna głębokość mózgu) — w takim
+   * wypadku po cichu wracamy do losowej genezy zamiast dekodować genom
+   * niezgodny z aktualnym układem.
+   */
+  private readonly seedGenome: Float32Array | null;
+  private readonly seedMutationReport = makeMutationReport();
+
+  constructor(config: SimulationConfig, seedGenome?: Float32Array) {
     this.config = config;
     this.rng = new Rng(config.seed);
     this.foodRng = new Rng(config.seed ^ 0x5f356495);
@@ -123,6 +135,16 @@ export class World {
     this.agentGrid = new SpatialGrid(config.worldSize, Math.max(40, config.visionRadius / 3), config.wrapEdges);
     this.foodGrid = new SpatialGrid(config.worldSize, Math.max(40, config.visionRadius / 4), config.wrapEdges);
     this.itemGrid = new SpatialGrid(config.worldSize, Math.max(40, config.visionRadius / 4), config.wrapEdges);
+    if (seedGenome && seedGenome.length === genomeLength(config)) {
+      this.seedGenome = seedGenome;
+    } else {
+      if (seedGenome) {
+        console.warn(
+          `Genom startowy ma długość ${seedGenome.length}, a aktualna konfiguracja oczekuje ${genomeLength(config)} — pomijam go i losuję populację od zera.`,
+        );
+      }
+      this.seedGenome = null;
+    }
     this.reset();
   }
 
@@ -144,13 +166,14 @@ export class World {
       this.clusters.push({
         x: this.foodRng.range(0, this.config.worldSize),
         y: this.foodRng.range(0, this.config.worldSize),
-        vx: this.foodRng.symmetric(0.25),
-        vy: this.foodRng.symmetric(0.25),
+        vx: this.foodRng.symmetric(this.config.foodClusterDriftSpeed),
+        vy: this.foodRng.symmetric(this.config.foodClusterDriftSpeed),
       });
     }
 
     for (let i = 0; i < this.config.initialPopulation; i++) {
-      this.spawnRandomAgent();
+      if (this.seedGenome) this.spawnSeededAgent(this.seedGenome);
+      else this.spawnRandomAgent();
     }
     // Startowy zapas jedzenia, żeby pierwsze pokolenie miało czego szukać.
     for (let i = 0; i < this.config.maxFood * 0.35; i++) {
@@ -176,6 +199,27 @@ export class World {
   spawnRandomAgent(): Agent {
     const cfg = this.config;
     const genome = createRandomGenome(cfg, this.rng);
+    const agent = new Agent(this.allocateAgentId(), genome, cfg, {
+      x: this.rng.range(0, cfg.worldSize),
+      y: this.rng.range(0, cfg.worldSize),
+      heading: this.rng.range(0, TAU),
+      energy: cfg.startEnergy,
+      generation: 0,
+      bornAtTick: this.tick,
+    });
+    this.addAgent(agent);
+    return agent;
+  }
+
+  /**
+   * Agent "pretrenowany": zmutowana kopia genomu-przodka zamiast losowej
+   * genezy. Używa zwykłego `mutate()` — ta sama siła mutacji, którą i tak
+   * steruje `mutationChance`/`mutationDelta`, więc startowa różnorodność
+   * populacji rośnie z tych samych suwaków co reszta ewolucji.
+   */
+  spawnSeededAgent(seed: Float32Array): Agent {
+    const cfg = this.config;
+    const genome = mutate(seed, cfg, this.rng, this.seedMutationReport);
     const agent = new Agent(this.allocateAgentId(), genome, cfg, {
       x: this.rng.range(0, cfg.worldSize),
       y: this.rng.range(0, cfg.worldSize),
@@ -221,13 +265,14 @@ export class World {
     return this.food.spawn(x, y);
   }
 
-  /** Powolny dryf płatów jedzenia — zmusza populację do ciągłej migracji. */
+  /** Dryf płatów jedzenia — zmusza populację do ciągłej migracji zamiast
+   *  pozwalać obozować w jednym miejscu w nieskończoność. */
   driftClusters(): void {
     const cfg = this.config;
     for (const c of this.clusters) {
-      if (this.foodRng.chance(0.002)) {
-        c.vx = this.foodRng.symmetric(0.25);
-        c.vy = this.foodRng.symmetric(0.25);
+      if (this.foodRng.chance(cfg.foodClusterRedirectChance)) {
+        c.vx = this.foodRng.symmetric(cfg.foodClusterDriftSpeed);
+        c.vy = this.foodRng.symmetric(cfg.foodClusterDriftSpeed);
       }
       c.x = wrap(c.x + c.vx, cfg.worldSize);
       c.y = wrap(c.y + c.vy, cfg.worldSize);

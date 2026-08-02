@@ -41,6 +41,7 @@ const TUNABLE: Array<{
   { key: 'matingRange', label: 'zasięg szukania partnera', min: 1, max: 100, step: 1 },
   { key: 'speedMaturationTicks', label: 'dojrzewanie prędkości (ticki)', min: 0, max: 3000, step: 50 },
   { key: 'combatMaturationTicks', label: 'dojrzewanie bojowe (ticki)', min: 0, max: 3000, step: 50 },
+  { key: 'foodClusterDriftSpeed', label: 'prędkość dryfu klastrów', min: 0, max: 6, step: 0.1 },
 ];
 
 const SPEEDS = [1, 2, 5, 10, 25, 100];

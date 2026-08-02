@@ -32,12 +32,15 @@ export class Simulation {
   world: World;
   readonly statistics = new StatisticsSystem();
   private systems: System[] = [];
+  /** Genom-przodek do zasiania startowej populacji — patrz World.spawnSeededAgent. */
+  private readonly seedGenome?: Float32Array;
 
   /** Czas wykonania ostatniego ticka w ms — do panelu wydajności. */
   lastTickMs = 0;
 
-  constructor(config: Partial<SimulationConfig> = {}) {
-    this.world = new World(makeConfig(config));
+  constructor(config: Partial<SimulationConfig> = {}, seedGenome?: Float32Array) {
+    this.seedGenome = seedGenome;
+    this.world = new World(makeConfig(config), seedGenome);
     this.systems = this.buildSystems();
   }
 
@@ -85,10 +88,14 @@ export class Simulation {
     for (let i = 0; i < n; i++) this.step();
   }
 
-  /** Restart z nową konfiguracją (albo tą samą — wtedy identyczny przebieg). */
+  /**
+   * Restart z nową konfiguracją (albo tą samą — wtedy identyczny przebieg).
+   * Genom startowy podany w konstruktorze (jeśli był) obowiązuje nadal —
+   * restart świata nie kasuje "pretrenowanego" punktu startowego.
+   */
   reset(config?: Partial<SimulationConfig>): void {
     const next = config ? makeConfig({ ...this.world.config, ...config }) : this.world.config;
-    this.world = new World(next);
+    this.world = new World(next, this.seedGenome);
     this.statistics.reset();
     this.systems = this.buildSystems();
     this.lastTickMs = 0;

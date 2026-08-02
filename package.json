@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "headless": "tsx scripts/headless.ts",
+    "evolve": "tsx scripts/evolve.ts",
     "test:determinism": "tsx scripts/determinism.test.ts"
   },
   "dependencies": {

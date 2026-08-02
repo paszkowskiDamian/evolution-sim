@@ -28,6 +28,10 @@ export interface SimulationConfig {
   /** Jedzenie pojawia się w klastrach (płatach) zamiast równomiernie. */
   foodClusterCount: number;
   foodClusterRadius: number;
+  /** Prędkość dryfu płata (jednostki/tick) — patrz World.driftClusters(). */
+  foodClusterDriftSpeed: number;
+  /** Szansa na tick, że płat zmieni kierunek dryfu. */
+  foodClusterRedirectChance: number;
 
   // --- kamienie (przenoszalne przedmioty) ---
   /** Ile kamieni istnieje w świecie — pojemność pola przedmiotów. */
@@ -140,10 +144,20 @@ export const defaultConfig: SimulationConfig = {
   // jego zjedzenie) ma być odczuwalna.
   foodSpawnRate: 2.5,
   maxFood: 700,
-  foodEnergy: 26,
+  foodEnergy: 40,
   foodRadius: 4,
   foodClusterCount: 18,
   foodClusterRadius: 220,
+  // Podniesione z 0.25/0.002: przy starej wartości płat porusza się tak
+  // wolno, że stojący w miejscu agent średnio i tak siedzi WEWNĄTRZ
+  // promienia klastra (zmierzone: śr. odległość do klastra 181 < promień
+  // 220 — czyste obozowanie). Przy tej wartości średnia odległość
+  // przekracza promień klastra (293 > 220), więc trwałe stanie w miejscu
+  // przestaje się opłacać — a mimo to zjadane jedzenie ROŚNIE (9872 -> 12492
+  // w 25000-tickowym teście), bo wymuszony ruch trafia na więcej płatów,
+  // zamiast wyjadać jeden do zera.
+  foodClusterDriftSpeed: 2.0,
+  foodClusterRedirectChance: 0.006,
 
   rockCount: 40,
   rockRespawnRate: 0,
