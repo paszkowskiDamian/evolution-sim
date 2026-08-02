@@ -32,7 +32,8 @@ export interface CumulativeStats {
   totalMutations: number;
   totalPickups: number;
   totalDrops: number;
-  totalRocksDug: number;
+  totalTilesDug: number;
+  totalTilesBuilt: number;
   totalAttacks: number;
   totalDeathsByCombat: number;
 }

@@ -12,6 +12,7 @@ import {
 } from '../sprites/textures';
 import { hslToRgb, clamp } from '../../core/utils/math';
 import { ROCK_TYPE, FOOD_TYPE } from '../../core/world/items';
+import { TILE_ROCK } from '../../core/world/terrain';
 
 /**
  * Renderer.
@@ -45,6 +46,7 @@ export class PixiRenderer {
 
   private worldLayer = new Container();
   private caveLayer = new Graphics();
+  private terrainLayer = new Graphics();
   private foodLayer = new Container();
   private rockLayer = new Container();
   private agentLayer = new Container();
@@ -83,6 +85,7 @@ export class PixiRenderer {
 
     this.worldLayer.addChild(this.border);
     this.worldLayer.addChild(this.caveLayer);
+    this.worldLayer.addChild(this.terrainLayer);
     this.worldLayer.addChild(this.foodLayer);
     this.worldLayer.addChild(this.rockLayer);
     this.worldLayer.addChild(this.agentLayer);
@@ -127,6 +130,7 @@ export class PixiRenderer {
 
     this.drawBorder(sim);
     this.drawCaves(sim);
+    this.drawTerrain(sim);
     this.drawFood(sim);
     this.drawRocks(sim);
     this.drawAgents(sim);
@@ -159,6 +163,32 @@ export class PixiRenderer {
         .fill({ color: 0x3a3220, alpha: 0.12 })
         .stroke({ width: lw, color: 0x6b5a35, alpha: 0.35 });
     }
+  }
+
+  /**
+   * Teren: siatka litych komórek (ściany gór, plus cokolwiek dobudowane —
+   * patrz `core/world/terrain.ts` i `CarrySystem.maybeBuild`). Rysowane jako
+   * proste kwadraty zamiast pojedynczych sprite'ów kamieni — to WŁAŚNIE ta
+   * zmiana (siatka zamiast losowego rozrzutu) usuwa szczeliny, przez które
+   * agent mógł dawniej przejść przez "ścianę".
+   */
+  private drawTerrain(sim: Simulation): void {
+    const g = this.terrainLayer;
+    g.clear();
+    const terrain = sim.world.terrain;
+    const cellSize = terrain.cellSize;
+    const cols = terrain.cols;
+    const cells = terrain.cells;
+    const lw = Math.max(0.5, 1 / Math.max(this.camera.zoom, 0.0001));
+
+    for (let cy = 0; cy < cols; cy++) {
+      const rowBase = cy * cols;
+      for (let cx = 0; cx < cols; cx++) {
+        if (cells[rowBase + cx] !== TILE_ROCK) continue;
+        g.rect(cx * cellSize, cy * cellSize, cellSize, cellSize);
+      }
+    }
+    g.fill({ color: 0x7a7f8c }).stroke({ width: lw, color: 0x40444e, alpha: 0.7 });
   }
 
   private drawFood(sim: Simulation): void {

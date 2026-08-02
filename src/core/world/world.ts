@@ -3,7 +3,8 @@ import { Rng } from '../utils/rng';
 import { SpatialGrid } from '../utils/spatialHash';
 import { Agent } from '../agents/agent';
 import { FoodField } from './food';
-import { ItemField, ROCK_TYPE } from './items';
+import { ItemField } from './items';
+import { TerrainGrid } from './terrain';
 import { createRandomGenome, genomeLength } from '../genetics/genome';
 import { mutate, makeMutationReport } from '../genetics/mutation';
 import { TAU, wrap, wrapDelta } from '../utils/math';
@@ -18,7 +19,8 @@ export interface TickEvents {
   foodEaten: number;
   itemsPickedUp: number;
   itemsDropped: number;
-  rocksDug: number;
+  tilesDug: number;
+  tilesBuilt: number;
   attacks: number;
   pointMutations: number;
   swapMutations: number;
@@ -53,9 +55,12 @@ interface FoodCluster {
 }
 
 /**
- * Formacja górska: nieruchomy środek pierścienia skalnego (patrz
- * `spawnRock`) z pustym wnętrzem — jaskinią. W przeciwieństwie do płatów
- * jedzenia góry NIE dryfują — to trwała rzeźba terenu, nie zasób.
+ * Formacja górska: nieruchomy środek pierścienia skalnego wyrzeźbionego
+ * w `World.terrain` (patrz `TerrainGrid.carveRing`), z pustym wnętrzem —
+ * jaskinią. W przeciwieństwie do płatów jedzenia góry NIE dryfują — to
+ * trwała rzeźba terenu, nie zasób. Sam obiekt trzyma tylko środek — kształt
+ * ściany żyje wyłącznie w siatce terenu, którą kopanie/budowanie może
+ * trwale zmienić.
  */
 interface Mountain {
   x: number;
@@ -98,7 +103,10 @@ export class World {
   agents: Agent[] = [];
   readonly agentById = new Map<number, Agent>();
   readonly food: FoodField;
+  /** Luźne, przenoszalne kamienie (zasób) — NIE ściany, patrz `terrain`. */
   readonly items: ItemField;
+  /** Teren: siatka pustych/litych komórek — patrz `core/world/terrain.ts`. */
+  readonly terrain: TerrainGrid;
 
   readonly agentGrid: SpatialGrid;
   readonly foodGrid: SpatialGrid;
@@ -113,7 +121,8 @@ export class World {
     foodEaten: 0,
     itemsPickedUp: 0,
     itemsDropped: 0,
-    rocksDug: 0,
+    tilesDug: 0,
+    tilesBuilt: 0,
     attacks: 0,
     pointMutations: 0,
     swapMutations: 0,
@@ -160,7 +169,8 @@ export class World {
     this.rng = new Rng(config.seed);
     this.foodRng = new Rng(config.seed ^ 0x5f356495);
     this.food = new FoodField(config.maxFood);
-    this.items = new ItemField(config.rockCount);
+    this.items = new ItemField(config.maxLooseRocks);
+    this.terrain = new TerrainGrid(config.worldSize, config.terrainCellSize);
     // Rozmiar komórki dobrany pod typowy promień zapytania — 1 pierścień
     // sąsiadów wystarcza dla jedzenia, kilka dla wzroku agentów.
     this.agentGrid = new SpatialGrid(config.worldSize, Math.max(40, config.visionRadius / 3), config.wrapEdges);
@@ -204,14 +214,23 @@ export class World {
     }
 
     // Góry są nieruchome — generowane raz, w przeciwieństwie do płatów
-    // jedzenia nie mają własnej dynamiki dryfu.
+    // jedzenia nie mają własnej dynamiki dryfu. Kształt ściany żyje w
+    // `terrain` (siatka), wyrzeźbiony systematycznym wypełnieniem komórek —
+    // stąd bez szczelin, w przeciwieństwie do dawnego losowego rozrzutu
+    // kamieni-przedmiotów.
+    this.terrain.clear();
     this.mountains = [];
     for (let i = 0; i < this.config.mountainCount; i++) {
-      this.mountains.push({
-        x: this.foodRng.range(0, this.config.worldSize),
-        y: this.foodRng.range(0, this.config.worldSize),
-      });
+      const x = this.foodRng.range(0, this.config.worldSize);
+      const y = this.foodRng.range(0, this.config.worldSize);
+      this.mountains.push({ x, y });
+      this.terrain.carveRing(x, y, this.config.mountainInnerRadius, this.config.mountainOuterRadius);
     }
+
+    // Luźne kamienie NIE są zasiewane na starcie — powstają wyłącznie
+    // z kopania ściany (patrz CarrySystem). `items.clear()` powyżej już
+    // zapewnia pusty ItemField (tylko pojemność jest zarezerwowana przez
+    // `maxLooseRocks`).
 
     for (let i = 0; i < this.config.initialPopulation; i++) {
       if (this.seedGenome) this.spawnSeededAgent(this.seedGenome);
@@ -220,9 +239,6 @@ export class World {
     // Startowy zapas jedzenia, żeby pierwsze pokolenie miało czego szukać.
     for (let i = 0; i < this.config.maxFood * 0.35; i++) {
       this.spawnFood();
-    }
-    for (let i = 0; i < this.config.rockCount; i++) {
-      this.spawnRock();
     }
   }
 
@@ -345,36 +361,9 @@ export class World {
   }
 
   // ------------------------------------------------------------ przedmioty
-
-  /**
-   * Kamienie rozsiewamy w pierścieniu wokół losowej góry (patrz `Mountain`)
-   * — gęsta ściana skalna otaczająca puste wnętrze (jaskinię), a nie
-   * równomierny rozsiew. Próbkowanie jednostajne w pierścieniu:
-   * `dist = sqrt(inner² + u*(outer²-inner²))` daje równą gęstość
-   * powierzchniową (samo `sqrt(u)` faworyzowałoby środek).
-   *
-   * Zawsze przez `foodRng`, NIGDY `rng`: rozkład kamieni jest cechą
-   * ŚRODOWISKA, a eksperyment "wspólny ogród" (patrz scripts/headless.ts)
-   * wymaga, żeby środowisko było identyczne niezależnie od tego, ile razy
-   * agenci sięgnęli po losowość.
-   */
-  spawnRock(): number {
-    if (this.items.isFull) return -1;
-    const cfg = this.config;
-    if (this.mountains.length === 0) {
-      const x = this.foodRng.range(0, cfg.worldSize);
-      const y = this.foodRng.range(0, cfg.worldSize);
-      return this.items.spawn(x, y, ROCK_TYPE);
-    }
-    const m = this.mountains[this.foodRng.int(this.mountains.length)];
-    const angle = this.foodRng.range(0, TAU);
-    const inner = cfg.mountainInnerRadius;
-    const outer = cfg.mountainOuterRadius;
-    const dist = Math.sqrt(inner * inner + this.foodRng.next() * (outer * outer - inner * inner));
-    const x = wrap(m.x + Math.cos(angle) * dist, cfg.worldSize);
-    const y = wrap(m.y + Math.sin(angle) * dist, cfg.worldSize);
-    return this.items.spawn(x, y, ROCK_TYPE);
-  }
+  // (luźne kamienie same w sobie żyją w `this.items`, tworzone/niszczone
+  // wprost przez CarrySystem — kopanie i budowanie to zmiany TERENU, patrz
+  // `this.terrain`, nie osobna logika tutaj.)
 
   /**
    * Czy punkt leży wewnątrz jaskini (pustego wnętrza) którejś z gór —
@@ -412,7 +401,8 @@ export class World {
     e.foodEaten = 0;
     e.itemsPickedUp = 0;
     e.itemsDropped = 0;
-    e.rocksDug = 0;
+    e.tilesDug = 0;
+    e.tilesBuilt = 0;
     e.attacks = 0;
     e.pointMutations = 0;
     e.swapMutations = 0;

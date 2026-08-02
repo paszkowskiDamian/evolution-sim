@@ -44,11 +44,14 @@ export const SENSOR_LABELS = [
   'cos(kąt→partner)',
   'bliskość partnera',
   'niosę jedzenie',
+  'sin(kąt→ściana)',
+  'cos(kąt→ściana)',
+  'bliskość ściany',
 ] as const;
 
 export const OUTPUT_LABELS = ['obrót', 'ruch', 'chęć rozmnażania', 'chwyć/upuść', 'atak', 'jedz'] as const;
 
-export const INPUT_COUNT = SENSOR_LABELS.length; // 22
+export const INPUT_COUNT = SENSOR_LABELS.length; // 25
 export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 6
 
 /** Zdekodowany kształt sieci danego agenta — patrz `decodeBrainShape` w genetics/genome.ts. */

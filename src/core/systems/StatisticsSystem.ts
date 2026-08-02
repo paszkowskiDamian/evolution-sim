@@ -20,7 +20,8 @@ export class StatisticsSystem implements System {
     totalMutations: 0,
     totalPickups: 0,
     totalDrops: 0,
-    totalRocksDug: 0,
+    totalTilesDug: 0,
+    totalTilesBuilt: 0,
     totalAttacks: 0,
     totalDeathsByCombat: 0,
   };
@@ -43,7 +44,8 @@ export class StatisticsSystem implements System {
     this.cumulative.totalMutations = 0;
     this.cumulative.totalPickups = 0;
     this.cumulative.totalDrops = 0;
-    this.cumulative.totalRocksDug = 0;
+    this.cumulative.totalTilesDug = 0;
+    this.cumulative.totalTilesBuilt = 0;
     this.cumulative.totalAttacks = 0;
     this.cumulative.totalDeathsByCombat = 0;
     this.winBirths = 0;
@@ -75,7 +77,8 @@ export class StatisticsSystem implements System {
     this.cumulative.totalMutations += mutations;
     this.cumulative.totalPickups += e.itemsPickedUp;
     this.cumulative.totalDrops += e.itemsDropped;
-    this.cumulative.totalRocksDug += e.rocksDug;
+    this.cumulative.totalTilesDug += e.tilesDug;
+    this.cumulative.totalTilesBuilt += e.tilesBuilt;
     this.cumulative.totalAttacks += e.attacks;
     this.cumulative.totalDeathsByCombat += e.deathsByCombat;
 

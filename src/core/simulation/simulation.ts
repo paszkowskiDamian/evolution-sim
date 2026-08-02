@@ -7,7 +7,7 @@ import { SensorSystem } from '../systems/SensorSystem';
 import { BrainSystem } from '../systems/BrainSystem';
 import { MovementSystem } from '../systems/MovementSystem';
 import { CollisionSystem } from '../systems/CollisionSystem';
-import { RockCollisionSystem } from '../systems/RockCollisionSystem';
+import { TerrainCollisionSystem } from '../systems/TerrainCollisionSystem';
 import { FoodSystem } from '../systems/FoodSystem';
 import { CarrySystem } from '../systems/CarrySystem';
 import { AttackSystem } from '../systems/AttackSystem';
@@ -103,7 +103,7 @@ export class Simulation {
       this.gpuBrain ?? new BrainSystem(), //       2. decyzja sieci neuronowej
       this.gpuMovement ?? new MovementSystem(), // 3. ruch
       new CollisionSystem(), //    4. kolizje agent-agent
-      new RockCollisionSystem(), // 5. kamienie jako przeszkody
+      new TerrainCollisionSystem(), // 5. teren (ściany) jako przeszkody
       // CarrySystem PRZED FoodSystem: jeśli agent w tym samym ticku chce
       // I podnieść, I zjeść, podniesienie z ziemi ma pierwszeństwo — zjedzenie
       // wtedy sięga do właśnie napełnionego ekwipunku zamiast do ziemi.

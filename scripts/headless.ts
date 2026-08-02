@@ -97,10 +97,10 @@ function assay(genomes: Float32Array[], label: string): number {
   test.run(ASSAY_TICKS);
   const eaten = test.statistics.cumulative.totalFoodEaten;
   const survivors = test.world.agents.length;
-  const { totalPickups, totalDrops, totalAttacks } = test.statistics.cumulative;
+  const { totalPickups, totalDrops, totalTilesDug, totalTilesBuilt, totalAttacks } = test.statistics.cumulative;
   console.log(
     `  ${label.padEnd(22)} zjedzone: ${String(eaten).padStart(6)}   przeżyło: ${survivors}/${genomes.length}` +
-      `   kamienie: ${totalPickups}↑/${totalDrops}↓   ataki: ${totalAttacks}`,
+      `   kamienie: ${totalPickups}↑/${totalDrops}↓   teren: ${totalTilesDug} wykop./${totalTilesBuilt} zbud.   ataki: ${totalAttacks}`,
   );
   return eaten;
 }

@@ -152,6 +152,22 @@ export class SensorSystem implements System {
         }
       }
       input[21] = carryingFood ? 1 : -1;
+
+      // --- najbliższa ściana (lita komórka terenu) — zasięg NIEZALEŻNY od
+      // ewoluowalnego wzroku (patrz cfg.wallSenseRadius): ściana jest dużą,
+      // fizyczną przeszkodą, którą agent "czuje" z bliska niezależnie od
+      // tego, jak daleko sięga jego wzrok na drobne obiekty.
+      const wall = world.terrain.findNearestSolid(a.x, a.y, cfg.wallSenseRadius);
+      if (wall) {
+        const bearing = normalizeAngle(Math.atan2(wall.dy, wall.dx) - a.heading);
+        input[22] = Math.sin(bearing);
+        input[23] = Math.cos(bearing);
+        input[24] = 1 - wall.dist / cfg.wallSenseRadius;
+      } else {
+        input[22] = 0;
+        input[23] = 0;
+        input[24] = 0;
+      }
     }
   }
 }

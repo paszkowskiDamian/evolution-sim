@@ -33,14 +33,18 @@ export interface SimulationConfig {
   /** Szansa na tick, że płat zmieni kierunek dryfu. */
   foodClusterRedirectChance: number;
 
-  // --- kamienie (przenoszalne przedmioty) ---
-  /** Ile kamieni istnieje w świecie — pojemność pola przedmiotów. */
-  rockCount: number;
-  /** Ticki/kamień do dosiewania nowych (0 = brak — kamienie tylko krążą). */
-  rockRespawnRate: number;
-  /** Promień fizyczny kamienia — leżący kamień jest przeszkodą tej wielkości. */
+  // --- teren (siatka: puste / lita skała) ---
+  /** Bok kwadratowej komórki terenu — patrz `core/world/terrain.ts`. */
+  terrainCellSize: number;
+
+  // --- kamienie (luźne, przenoszalne przedmioty — NIE ściany, patrz teren) ---
+  /** Pojemność pola luźnych kamieni (nie liczba na starcie — świat zaczyna
+   *  się bez żadnych, powstają wyłącznie z kopania). */
+  maxLooseRocks: number;
+  /** Promień fizyczny luźnego kamienia (czysto wizualny/do chwytu — luźne
+   *  kamienie NIE są przeszkodą, tylko teren nią jest). */
   rockRadius: number;
-  /** Zasięg chwytu/upuszczenia względem promienia ciała. */
+  /** Zasięg chwytu/upuszczenia/kopania względem promienia ciała. */
   pickupRange: number;
   /** Ticki blokady po podniesieniu/upuszczeniu — chroni przed migotaniem. */
   carryActionCooldown: number;
@@ -48,13 +52,15 @@ export interface SimulationConfig {
   carryMetabolismMultiplier: number;
   /** Ile przedmiotów agent może nieść naraz. */
   maxCarryItems: number;
+  /** Ile luźnych kamieni musi trafić na PUSTĄ komórkę, żeby stężała w ścianę. */
+  buildRockThreshold: number;
 
-  // --- góry / jaskinie (klastry kamieni tworzące teren) ---
+  // --- góry / jaskinie (formacje terenu) ---
   /** Ile formacji górskich istnieje w świecie. */
   mountainCount: number;
-  /** Promień pustego wnętrza (jaskini) — bez kamieni, tu chowa się jedzenie i działa schronienie. */
+  /** Promień pustego wnętrza (jaskini) — tu chowa się jedzenie i działa schronienie. */
   mountainInnerRadius: number;
-  /** Zewnętrzny promień pierścienia skalnego — kamienie góry mieszczą się między inner a outer. */
+  /** Zewnętrzny promień pierścienia skalnego — ściana góry wypełnia teren między inner a outer. */
   mountainOuterRadius: number;
   /** Ułamek spawnów jedzenia kierowany do wnętrza losowej góry (jedzenie "za ścianą"). */
   caveFoodFraction: number;
@@ -62,6 +68,8 @@ export interface SimulationConfig {
   shelterHealthRegenMultiplier: number;
   /** Mnożnik kosztu metabolizmu wewnątrz jaskini (<1 = taniej istnieć w schronieniu). */
   shelterMetabolismDiscount: number;
+  /** Zasięg sensora "najbliższa ściana" — niezależny od ewoluowalnego wzroku. */
+  wallSenseRadius: number;
 
   // --- walka ---
   attackRange: number;
@@ -184,31 +192,34 @@ export const defaultConfig: SimulationConfig = {
   foodClusterDriftSpeed: 2.0,
   foodClusterRedirectChance: 0.006,
 
-  // Znacząco podniesione (150 -> 1500): przy 150 na mapie 3000x3000
-  // średni odstęp między kamieniami (~245 jednostek) jest porównywalny
-  // z promieniem widzenia (260) — kamień to rzadkość, nie teren. Przy
-  // 1500 średni odstęp spada do ~77 jednostek, więc agent ma zwykle
-  // kilkanaście kamieni w polu widzenia naraz — realna, gęsta rzeźba
-  // terenu do omijania, a nie pojedyncze osobliwości.
-  rockCount: 1500,
-  rockRespawnRate: 0,
+  // Bok komórki: dzieli 3000 dokładnie na 120 kolumn. Wystarczająco duży,
+  // żeby kopanie/budowanie pojedynczej komórki było odczuwalnym zdarzeniem
+  // (nie mikro-ziarnem), wystarczająco mały, żeby ściana góry (poniżej)
+  // miała realną grubość w komórkach zamiast być jedną cienką linią.
+  terrainCellSize: 25,
+
+  maxLooseRocks: 400,
   rockRadius: 5,
   pickupRange: 6,
   carryActionCooldown: 30,
   carryMetabolismMultiplier: 1.15,
   maxCarryItems: 5,
+  // 3 kamienie odłożone na tę samą pustą komórkę zestalają ją w ścianę —
+  // osiągalne bez gromadzenia ogromnych zapasów, ale nie z jednego rzutu.
+  buildRockThreshold: 3,
 
-  // Góry to grube pierścienie kamieni (100-145 od środka) wokół pustego
-  // wnętrza — gęstsza, bardziej "terenowa" struktura niż równomierny
-  // rozsiew: agent napotyka zwartą ścianę, a nie pojedyncze przeszkody.
-  // 1500 kamieni / 10 gór = ~150 kamieni/górę na pierścieniu o polu ~30000
-  // jednostek² — pokrycie ~40%, wystarczające żeby wymagało kopania.
+  // Ściana góry wypełnia teren w pierścieniu 100-150 od środka (2 komórki
+  // grubości przy cellSize=25) wokół pustego wnętrza (jaskini). W
+  // przeciwieństwie do dawnego rozrzutu losowych kamieni-przedmiotów,
+  // wypełnienie SIATKI jest z definicji szczelne — bez szczelin, przez
+  // które dałoby się przejść bez kopania.
   mountainCount: 10,
   mountainInnerRadius: 100,
-  mountainOuterRadius: 145,
+  mountainOuterRadius: 150,
   caveFoodFraction: 0.12,
   shelterHealthRegenMultiplier: 3,
   shelterMetabolismDiscount: 0.6,
+  wallSenseRadius: 140,
 
   attackRange: 10,
   attackDamageBase: 18,

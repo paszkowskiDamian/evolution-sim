@@ -11,6 +11,7 @@
  *  5. przeżywalność -> populacja nie wymiera i pokolenia rosną.
  */
 import { Simulation } from '../src/core/simulation/simulation';
+import { TILE_EMPTY } from '../src/core/world/terrain';
 
 // Rozmnażanie płciowe wymaga, żeby DWOJE konkretnych osobników spotkało
 // się blisko siebie — to rzadkie zdarzenie (patrz ReproductionSystem),
@@ -36,6 +37,13 @@ function hashWorld(sim: Simulation): string {
   mix(sim.world.items.count);
   mix(sim.world.rng.getState() % 1e6);
   mix(sim.world.foodRng.getState() % 1e6);
+  // Teren mutuje przez kopanie/budowanie — mieszamy INDEKS każdej litej
+  // komórki (nie tylko ich liczbę), żeby wychwycić "ta sama liczba, inny
+  // kształt" jako rozjazd.
+  const cells = sim.world.terrain.cells;
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i] !== TILE_EMPTY) mix(i);
+  }
   for (const a of sim.world.agents) {
     mix(a.id);
     mix(a.x);
@@ -117,6 +125,11 @@ check(
   '9. agenci podnoszą/upuszczają kamienie',
   b.statistics.cumulative.totalPickups > 0,
   `${b.statistics.cumulative.totalPickups} podniesień, ${b.statistics.cumulative.totalDrops} upuszczeń`,
+);
+check(
+  '9b. agenci kopią ściany terenu',
+  b.statistics.cumulative.totalTilesDug > 0,
+  `${b.statistics.cumulative.totalTilesDug} wykopanych komórek, ${b.statistics.cumulative.totalTilesBuilt} zbudowanych (budowanie bywa rzadkie przy losowych mózgach — nie jest tu wymagane)`,
 );
 check(
   '10. agenci atakują się nawzajem',
