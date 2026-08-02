@@ -132,6 +132,8 @@ export interface SimulationConfig {
   reproductionEnergyThreshold: number; // ułamek maxEnergy
   reproductionCost: number; // ułamek energii KAŻDEGO z rodziców, przekazany + stracony
   reproductionCooldown: number; // ticki
+  /** Mnożnik `reproductionCooldown` zastosowany WYŁĄCZNIE do matki — ciąża/połóg kosztują więcej niż ojca. */
+  motherCooldownMultiplier: number;
   maturityAge: number;
   /** Zasięg szukania partnera przeciwnej płci, względem promienia ciała. */
   matingRange: number;
@@ -288,6 +290,7 @@ export const defaultConfig: SimulationConfig = {
   reproductionEnergyThreshold: 0.4,
   reproductionCost: 0.45,
   reproductionCooldown: 120,
+  motherCooldownMultiplier: 2.5,
   maturityAge: 150,
   // Świat jest duży (worldSize=3000) i populacja przy tych ustawieniach
   // rzadka — przy wąskim zasięgu (np. 20, porównywalnym z attackRange)

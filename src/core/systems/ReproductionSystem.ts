@@ -59,13 +59,17 @@ export class ReproductionSystem implements System {
       const investB = partner.energy * cfg.reproductionCost;
       a.energy -= investA;
       partner.energy -= investB;
-      a.reproCooldown = cfg.reproductionCooldown;
-      partner.reproCooldown = cfg.reproductionCooldown;
       a.childrenCount++;
       partner.childrenCount++;
 
       const mother = a.phenotype.gender === FEMALE ? a : partner;
       const father = a.phenotype.gender === FEMALE ? partner : a;
+
+      // Matka dłużej dochodzi do siebie po porodzie niż ojciec — to ona
+      // fizycznie "urodziła", więc jej refrakcja jest dłuższa (ciąża/połóg),
+      // nie tylko symetryczny odstęp między kolejnymi kojarzeniami.
+      mother.reproCooldown = cfg.reproductionCooldown * cfg.motherCooldownMultiplier;
+      father.reproCooldown = cfg.reproductionCooldown;
 
       // Część zainwestowanej energii ginie w samym akcie reprodukcji —
       // rozmnażanie nigdy nie jest darmowe, inaczej populacja eksploduje.

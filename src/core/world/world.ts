@@ -4,10 +4,10 @@ import { SpatialGrid } from '../utils/spatialHash';
 import { Agent } from '../agents/agent';
 import { FoodField } from './food';
 import { ItemField } from './items';
-import { TerrainGrid } from './terrain';
-import { createRandomGenome, genomeLength } from '../genetics/genome';
+import { TerrainGrid, TILE_ROCK, TILE_EMPTY } from './terrain';
+import { createRandomGenome, genomeLength, bioGeneOffset, BIO_GENES } from '../genetics/genome';
 import { mutate, makeMutationReport } from '../genetics/mutation';
-import { TAU, wrap } from '../utils/math';
+import { TAU, wrap, wrapDelta } from '../utils/math';
 
 /** Liczniki zdarzeń z pojedynczego ticka — czyszczone na jego początku. */
 export interface TickEvents {
@@ -72,9 +72,17 @@ const LINEAGE_CAPACITY = 4000;
  *  trafień) — limit to wyłącznie zabezpieczenie dla biegów headless, gdzie
  *  nic go nigdy nie czyta. */
 const COMBAT_EVENT_CAPACITY = 200;
+/** Jak wyżej, ale dla narodzin (patrz `BirthEvent`). */
+const BIRTH_EVENT_CAPACITY = 200;
 
 /** Miejsce trafienia — do animacji w rendererze, nie do logiki symulacji. */
 export interface CombatEvent {
+  x: number;
+  y: number;
+}
+
+/** Miejsce narodzin — do animacji w rendererze, nie do logiki symulacji. */
+export interface BirthEvent {
   x: number;
   y: number;
 }
@@ -142,6 +150,14 @@ export class World {
   readonly combatEvents: CombatEvent[] = [];
 
   /**
+   * Kolejka "gdzie właśnie ktoś się urodził" — wypełniana przez
+   * MutationSystem (jedyne miejsce tworzące nowego agenta), drenowana przez
+   * renderer co klatkę do narysowania efektu narodzin. Tak samo jak
+   * `combatEvents` — czysto wizualne, core/ nigdy tego nie czyta z powrotem.
+   */
+  readonly birthEvents: BirthEvent[] = [];
+
+  /**
    * Kolejka narodzin: ReproductionSystem decyduje KTO się rozmnaża,
    * MutationSystem decyduje JAKI genom dostanie potomek.
    * Rozdzielone celowo — mutacje da się wymienić bez dotykania rozmnażania.
@@ -197,6 +213,7 @@ export class World {
     this.items.clear();
     this.lineage.length = 0;
     this.combatEvents.length = 0;
+    this.birthEvents.length = 0;
     this.pendingBirths.length = 0;
     this.nextAgentId = 1;
     this.maxGeneration = 0;
@@ -253,7 +270,7 @@ export class World {
     // `maxLooseRocks`).
 
     for (let i = 0; i < this.config.initialPopulation; i++) {
-      if (this.seedGenome) this.spawnSeededAgent(this.seedGenome);
+      if (this.seedGenome) this.spawnSeededAgent(this.seedGenome, i);
       else this.spawnRandomAgent();
     }
     // Startowy zapas jedzenia, żeby pierwsze pokolenie miało czego szukać.
@@ -294,10 +311,21 @@ export class World {
    * genezy. Używa zwykłego `mutate()` — ta sama siła mutacji, którą i tak
    * steruje `mutationChance`/`mutationDelta`, więc startowa różnorodność
    * populacji rośnie z tych samych suwaków co reszta ewolucji.
+   *
+   * Płeć jest genem progowym (>=0 → samiec) — cała startowa populacja to
+   * mutowane kopie JEDNEGO przodka, więc bez korekty odziedziczyłaby
+   * niemal identyczną wartość tego genu (drobne mutacje prawie nigdy nie
+   * przeskakują progu 0), a populacja startowa wychodziłaby niemal
+   * jednopłciowa. `index` wymusza naprzemienność płci — deterministyczne,
+   * bez zużywania RNG — dając obu płciom równy start; dziedziczenie płci
+   * przez kolejne pokolenia (dzieci) pozostaje bez zmian.
    */
-  spawnSeededAgent(seed: Float32Array): Agent {
+  spawnSeededAgent(seed: Float32Array, index: number): Agent {
     const cfg = this.config;
     const genome = mutate(seed, cfg, this.rng, this.seedMutationReport);
+    const o = bioGeneOffset(cfg);
+    const sign = index % 2 === 0 ? 1 : -1;
+    genome[o + BIO_GENES.gender] = sign * Math.max(Math.abs(genome[o + BIO_GENES.gender]), 0.5);
     const agent = new Agent(this.allocateAgentId(), genome, cfg, {
       x: this.rng.range(0, cfg.worldSize),
       y: this.rng.range(0, cfg.worldSize),
@@ -331,6 +359,13 @@ export class World {
     this.combatEvents.push({ x, y });
     if (this.combatEvents.length > COMBAT_EVENT_CAPACITY) {
       this.combatEvents.splice(0, this.combatEvents.length - COMBAT_EVENT_CAPACITY);
+    }
+  }
+
+  recordBirthEvent(x: number, y: number): void {
+    this.birthEvents.push({ x, y });
+    if (this.birthEvents.length > BIRTH_EVENT_CAPACITY) {
+      this.birthEvents.splice(0, this.birthEvents.length - BIRTH_EVENT_CAPACITY);
     }
   }
 
@@ -407,6 +442,64 @@ export class World {
 
   getMountains(): ReadonlyArray<{ x: number; y: number }> {
     return this.mountains;
+  }
+
+  // ------------------------------------------------------- ręczna edycja
+  // "Boska ręka" z UI (patrz `useSimulation.ts`, narzędzia malowania) —
+  // NIE jest mechaniką symulacji, tylko wygodą do eksperymentowania z mapą
+  // na żywo. Celowo respektuje te same reguły co procedury automatyczne
+  // (jedzenie nie ląduje na litym terenie ani w schronieniu, budowanie
+  // ściany sprząta jedzenie pod spodem), żeby ręczne edycje nigdy nie
+  // wprowadzały tych samych błędów, które naprawiliśmy w generowaniu świata.
+
+  /** Stawia jedno jedzenie w danym miejscu. `false`, jeśli miejsce jest zajęte/nielegalne. */
+  addFoodAt(x: number, y: number): boolean {
+    if (this.food.isFull) return false;
+    if (this.terrain.isSolidAt(x, y)) return false;
+    if (this.isInShelter(x, y)) return false;
+    return this.food.spawn(x, y) >= 0;
+  }
+
+  /** Usuwa najbliższe jedzenie w promieniu `radius`. `true`, jeśli coś usunięto. */
+  removeFoodNear(x: number, y: number, radius: number): boolean {
+    const food = this.food;
+    let bestId = -1;
+    let bestD2 = radius * radius;
+    for (let i = 0; i < food.capacity; i++) {
+      if (food.alive[i] === 0) continue;
+      const dx = wrapDelta(food.xs[i] - x, this.config.worldSize);
+      const dy = wrapDelta(food.ys[i] - y, this.config.worldSize);
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestId = i;
+      }
+    }
+    if (bestId < 0) return false;
+    food.remove(bestId);
+    return true;
+  }
+
+  /** Stawia litą komórkę terenu w danym miejscu. */
+  addWallAt(x: number, y: number): void {
+    const cx = this.terrain.cellX(x);
+    const cy = this.terrain.cellY(y);
+    if (this.terrain.get(cx, cy) === TILE_ROCK) return;
+    this.terrain.set(cx, cy, TILE_ROCK);
+    // Jak przy naturalnym budowaniu (CarrySystem.maybeBuild) — jedzenie nie
+    // może zostać zamurowane pod nowo postawioną ścianą.
+    const food = this.food;
+    for (let i = 0; i < food.capacity; i++) {
+      if (food.alive[i] === 0) continue;
+      if (this.terrain.cellX(food.xs[i]) === cx && this.terrain.cellY(food.ys[i]) === cy) {
+        food.remove(i);
+      }
+    }
+  }
+
+  /** Usuwa (kopie) litą komórkę terenu w danym miejscu. */
+  removeWallAt(x: number, y: number): void {
+    this.terrain.set(this.terrain.cellX(x), this.terrain.cellY(y), TILE_EMPTY);
   }
 
   // ------------------------------------------------------------- zdarzenia

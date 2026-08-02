@@ -52,6 +52,7 @@ export class MutationSystem implements System {
 
       world.addAgent(child);
       world.events.births++;
+      world.recordBirthEvent(child.x, child.y);
     }
 
     births.length = 0;

@@ -33,7 +33,20 @@ const COMBAT_RING_DURATION_MS = 550;
 const COMBAT_RING_START_RADIUS = 6;
 const COMBAT_RING_END_RADIUS = 46;
 
+/** Jak wyżej, ale dla narodzin — dłuższy i delikatniejszy niż trafienie. */
+const BIRTH_SPARKLE_DURATION_MS = 750;
+const BIRTH_RING_START_RADIUS = 2;
+const BIRTH_RING_END_RADIUS = 26;
+const BIRTH_SPARKLE_COUNT = 6;
+const BIRTH_SPARKLE_LENGTH = 16;
+
 interface CombatRing {
+  x: number;
+  y: number;
+  startTime: number;
+}
+
+interface BirthSparkle {
   x: number;
   y: number;
   startTime: number;
@@ -51,6 +64,7 @@ export class PixiRenderer {
   private rockLayer = new Container();
   private agentLayer = new Container();
   private combatLayer = new Graphics();
+  private birthLayer = new Graphics();
   private overlay = new Graphics();
   private border = new Graphics();
 
@@ -58,6 +72,7 @@ export class PixiRenderer {
   private rockPool: Sprite[] = [];
   private agentPool: Sprite[] = [];
   private combatRings: CombatRing[] = [];
+  private birthSparkles: BirthSparkle[] = [];
 
   selectedId: number | null = null;
   showVision = true;
@@ -90,6 +105,7 @@ export class PixiRenderer {
     this.worldLayer.addChild(this.rockLayer);
     this.worldLayer.addChild(this.agentLayer);
     this.worldLayer.addChild(this.combatLayer);
+    this.worldLayer.addChild(this.birthLayer);
     this.worldLayer.addChild(this.overlay);
     app.stage.addChild(this.worldLayer);
 
@@ -135,6 +151,7 @@ export class PixiRenderer {
     this.drawRocks(sim);
     this.drawAgents(sim);
     this.drawCombatRings(sim);
+    this.drawBirthSparkles(sim);
     this.drawOverlay(sim);
 
     app.renderer.render(app.stage);
@@ -379,6 +396,55 @@ export class PixiRenderer {
     this.combatRings = alive;
   }
 
+  /**
+   * Iskierki narodzin: miękki, gasnący pierścień plus kilka promieni "iskier"
+   * w miejscu, gdzie właśnie urodził się nowy agent (patrz `MutationSystem`
+   * -> `world.recordBirthEvent`). Ta sama technika co `drawCombatRings`
+   * (drenowanie kolejki zdarzeń do lokalnego stanu animacji liczonego
+   * `performance.now()`), ale cieplejszy kolor i łagodniejszy przebieg —
+   * ma czytać się jako coś dobrego, w kontrze do czerwonych pierścieni walki.
+   */
+  private drawBirthSparkles(sim: Simulation): void {
+    const events = sim.world.birthEvents;
+    if (events.length > 0) {
+      const now = performance.now();
+      for (const e of events) {
+        this.birthSparkles.push({ x: e.x, y: e.y, startTime: now });
+      }
+      events.length = 0;
+    }
+
+    const g = this.birthLayer;
+    g.clear();
+    if (this.birthSparkles.length === 0) return;
+
+    const now = performance.now();
+    const alive: BirthSparkle[] = [];
+    const color = 0xffcf6b;
+    for (const s of this.birthSparkles) {
+      const t = (now - s.startTime) / BIRTH_SPARKLE_DURATION_MS;
+      if (t >= 1) continue;
+      alive.push(s);
+      const alpha = 1 - t;
+      const lw = Math.max(1, 2 / Math.max(this.camera.zoom, 0.0001));
+
+      const radius = BIRTH_RING_START_RADIUS + (BIRTH_RING_END_RADIUS - BIRTH_RING_START_RADIUS) * t;
+      g.circle(s.x, s.y, radius).stroke({ width: lw, color, alpha });
+
+      // Promienie iskier: krótkie odcinki wylatujące na zewnątrz, gasnące
+      // razem z pierścieniem — daje efekt "rozbłysku", nie tylko okręgu.
+      const sparkleReach = radius + BIRTH_SPARKLE_LENGTH * t;
+      for (let i = 0; i < BIRTH_SPARKLE_COUNT; i++) {
+        const angle = (i / BIRTH_SPARKLE_COUNT) * Math.PI * 2;
+        const innerR = radius * 0.6;
+        g.moveTo(s.x + Math.cos(angle) * innerR, s.y + Math.sin(angle) * innerR)
+          .lineTo(s.x + Math.cos(angle) * sparkleReach, s.y + Math.sin(angle) * sparkleReach)
+          .stroke({ width: lw, color, alpha: alpha * 0.8 });
+      }
+    }
+    this.birthSparkles = alive;
+  }
+
   private drawOverlay(sim: Simulation): void {
     const g = this.overlay;
     g.clear();
@@ -408,6 +474,7 @@ export class PixiRenderer {
     this.rockPool = [];
     this.agentPool = [];
     this.combatRings = [];
+    this.birthSparkles = [];
     if (this.app) {
       this.app.destroy(true, { children: true, texture: true });
       this.app = null;
