@@ -1,6 +1,7 @@
 import type { System } from './System';
 import type { World } from '../world/world';
 import { ROCK_TYPE } from '../world/items';
+import { wrap } from '../utils/math';
 
 /**
  * Chwytanie i upuszczanie przedmiotów (dziś: kamieni).
@@ -45,8 +46,14 @@ export class CarrySystem implements System {
           world.events.itemsPickedUp++;
         }
       } else {
-        // Upuszczenie: dokładnie bieżąca pozycja agenta, bez losowości.
-        items.spawn(a.x, a.y);
+        // Upuszczenie: tuż przed agentem, nie dokładnie na nim — kamienie
+        // są bryłami (RockCollisionSystem), więc "wewnątrz siebie" nie
+        // jest miejscem, w którym agent mógłby fizycznie stać. Zero
+        // losowości: kierunek to bieżący heading agenta, deterministyczny.
+        const dropDist = a.phenotype.radius + cfg.rockRadius + 1;
+        const dropX = wrap(a.x + Math.cos(a.heading) * dropDist, cfg.worldSize);
+        const dropY = wrap(a.y + Math.sin(a.heading) * dropDist, cfg.worldSize);
+        items.spawn(dropX, dropY);
         a.carriedItemType = -1;
         a.carryCooldown = cfg.carryActionCooldown;
         world.events.itemsDropped++;

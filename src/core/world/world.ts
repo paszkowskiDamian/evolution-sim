@@ -52,6 +52,16 @@ interface FoodCluster {
 }
 
 const LINEAGE_CAPACITY = 4000;
+/** Bufor zdarzeń walki jest drenowany co klatkę przez renderer (pierścienie
+ *  trafień) — limit to wyłącznie zabezpieczenie dla biegów headless, gdzie
+ *  nic go nigdy nie czyta. */
+const COMBAT_EVENT_CAPACITY = 200;
+
+/** Miejsce trafienia — do animacji w rendererze, nie do logiki symulacji. */
+export interface CombatEvent {
+  x: number;
+  y: number;
+}
 
 /**
  * Świat — jedyny właściciel stanu symulacji.
@@ -101,6 +111,14 @@ export class World {
 
   /** Ostatnio zmarli/urodzeni — materiał na drzewo genealogiczne. */
   readonly lineage: LineageRecord[] = [];
+
+  /**
+   * Kolejka "gdzie właśnie doszło do trafienia" — wypełniana przez
+   * AttackSystem, drenowana (i czyszczona) przez renderer co klatkę, żeby
+   * narysować gasnący pierścień. To wyłącznie wizualny efekt uboczny, nie
+   * stan symulacji — nic w core/ nigdy tego nie czyta z powrotem.
+   */
+  readonly combatEvents: CombatEvent[] = [];
 
   /**
    * Kolejka narodzin: ReproductionSystem decyduje KTO się rozmnaża,
@@ -155,6 +173,7 @@ export class World {
     this.food.clear();
     this.items.clear();
     this.lineage.length = 0;
+    this.combatEvents.length = 0;
     this.pendingBirths.length = 0;
     this.nextAgentId = 1;
     this.maxGeneration = 0;
@@ -246,6 +265,13 @@ export class World {
     });
     if (this.lineage.length > LINEAGE_CAPACITY) {
       this.lineage.splice(0, this.lineage.length - LINEAGE_CAPACITY);
+    }
+  }
+
+  recordCombatEvent(x: number, y: number): void {
+    this.combatEvents.push({ x, y });
+    if (this.combatEvents.length > COMBAT_EVENT_CAPACITY) {
+      this.combatEvents.splice(0, this.combatEvents.length - COMBAT_EVENT_CAPACITY);
     }
   }
 

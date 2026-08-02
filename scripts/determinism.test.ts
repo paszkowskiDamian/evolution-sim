@@ -122,14 +122,18 @@ check(
   b.statistics.cumulative.totalAttacks > 0,
   `${b.statistics.cumulative.totalAttacks} ataków, ${b.statistics.cumulative.totalDeathsByCombat} zgonów w walce`,
 );
-const hasSexualChild = (sim: Simulation): boolean =>
-  sim.world.agents.some((ag) => ag.motherId > 0 && ag.fatherId > 0);
+// UWAGA: nie sprawdzamy tego przez skan finałowej populacji pod kątem
+// motherId/fatherId — przy dużej rotacji (zgony + awaryjne dosiewanie
+// PopulationGuardSystem) seksualnie spłodzony potomek mógł powstać
+// i umrzeć przed migawką, mimo że rozmnażanie płciowe realnie zaszło.
+// `totalBirths`/`totalMutations` rosną WYŁĄCZNIE przez MutationSystem,
+// które przetwarza TYLKO kolejkę z ReproductionSystem (prawdziwe parowanie)
+// — PopulationGuardSystem inkrementuje `reseeded`, nigdy `births` — więc to
+// niezawodny sygnał "czy w ogóle doszło do rozmnażania płciowego w tym biegu".
 check(
-  '11. rozmnażanie jest płciowe (potomek ma matkę i ojca)',
-  hasSexualChild(b) || hasSexualChild(c),
-  `seed 4242: ${b.world.agents.filter((ag) => ag.motherId > 0 && ag.fatherId > 0).length}/${b.world.agents.length}` +
-    `, seed 9999: ${c.world.agents.filter((ag) => ag.motherId > 0 && ag.fatherId > 0).length}/${c.world.agents.length}` +
-    ` ma oboje rodziców`,
+  '11. rozmnażanie jest płciowe (realne narodziny w biegu)',
+  b.statistics.cumulative.totalBirths > 0 || c.statistics.cumulative.totalBirths > 0,
+  `seed 4242: ${b.statistics.cumulative.totalBirths} narodzin, seed 9999: ${c.statistics.cumulative.totalBirths} narodzin`,
 );
 check(
   '12. obie płcie występują w populacji',

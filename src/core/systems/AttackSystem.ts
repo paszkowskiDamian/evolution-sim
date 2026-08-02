@@ -56,6 +56,7 @@ export class AttackSystem implements System {
       a.energy -= cfg.attackEnergyCost;
       a.attackCooldown = cfg.attackCooldownTicks;
       world.events.attacks++;
+      world.recordCombatEvent(target.x, target.y);
     }
   }
 }

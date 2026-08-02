@@ -38,6 +38,8 @@ export interface SimulationConfig {
   rockCount: number;
   /** Ticki/kamień do dosiewania nowych (0 = brak — kamienie tylko krążą). */
   rockRespawnRate: number;
+  /** Promień fizyczny kamienia — leżący kamień jest przeszkodą tej wielkości. */
+  rockRadius: number;
   /** Zasięg chwytu/upuszczenia względem promienia ciała. */
   pickupRange: number;
   /** Ticki blokady po podniesieniu/upuszczeniu — chroni przed migotaniem. */
@@ -58,6 +60,13 @@ export interface SimulationConfig {
   // --- energia ---
   maxEnergy: number;
   startEnergy: number;
+  /**
+   * Przejedzenie: energia z jedzenia, która nie mieści się już w maxEnergy
+   * (bo agent jest pełny albo prawie pełny), zamienia się w obrażenia
+   * zdrowia zamiast się po prostu marnować — mnożnik nadwyżki-energii na
+   * utracone zdrowie. 0 = wyłączone (nadwyżka po prostu przepada).
+   */
+  overfeedHealthPenalty: number;
   /** Koszt samego istnienia na tick. */
   baseMetabolism: number;
   /** Współczynnik kosztu ruchu (koszt ~ v^2). */
@@ -159,8 +168,13 @@ export const defaultConfig: SimulationConfig = {
   foodClusterDriftSpeed: 2.0,
   foodClusterRedirectChance: 0.006,
 
-  rockCount: 40,
+  // Podniesione z 40: kamienie mają teraz fizyczną obecność (patrz
+  // RockCollisionSystem) i są jedynym obiektem do przenoszenia — przy
+  // 40 na mapie 3000x3000 spotkanie jednego jest rzadkością, więc nie ma
+  // czego celowo szukać ani przesuwać. Więcej kamieni = więcej okazji.
+  rockCount: 150,
   rockRespawnRate: 0,
+  rockRadius: 5,
   pickupRange: 6,
   carryActionCooldown: 30,
   carryMetabolismMultiplier: 1.15,
@@ -174,6 +188,11 @@ export const defaultConfig: SimulationConfig = {
 
   maxEnergy: 100,
   startEnergy: 60,
+  // Pełne foodEnergy (40) zmarnowane na pełnym żołądku kosztowałoby 20
+  // zdrowia — odczuwalne, ale nie zabija za jedno kęsniecie. Zmusza
+  // ewolucję do faktycznego rozpoznawania "czy jestem najedzony", zamiast
+  // jeść bezmyślnie na dotyk.
+  overfeedHealthPenalty: 0.5,
   // Koszt samego istnienia musi być odczuwalny. Gdy jest zbyt niski,
   // ewolucja znajduje strategię "stój w miejscu i czekaj aż jedzenie
   // samo na mnie spadnie" — działa, ale zabija całą resztę zachowań.

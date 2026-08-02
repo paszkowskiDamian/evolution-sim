@@ -25,8 +25,17 @@ import { hslToRgb, clamp } from '../../core/utils/math';
 const MIN_AGENT_PX = 2.6;
 const MIN_FOOD_PX = 1.1;
 const MIN_ROCK_PX = 1.4;
-/** Kamienie nie mają promienia fizycznego w symulacji — to wyłącznie rozmiar wizualny. */
-const ROCK_VISUAL_RADIUS = 5;
+
+/** Czas życia pierścienia trafienia (ms) i jego promienie na start/koniec. */
+const COMBAT_RING_DURATION_MS = 550;
+const COMBAT_RING_START_RADIUS = 6;
+const COMBAT_RING_END_RADIUS = 46;
+
+interface CombatRing {
+  x: number;
+  y: number;
+  startTime: number;
+}
 
 export class PixiRenderer {
   readonly camera = new Camera();
@@ -37,12 +46,14 @@ export class PixiRenderer {
   private foodLayer = new Container();
   private rockLayer = new Container();
   private agentLayer = new Container();
+  private combatLayer = new Graphics();
   private overlay = new Graphics();
   private border = new Graphics();
 
   private foodPool: Sprite[] = [];
   private rockPool: Sprite[] = [];
   private agentPool: Sprite[] = [];
+  private combatRings: CombatRing[] = [];
 
   selectedId: number | null = null;
   showVision = true;
@@ -72,6 +83,7 @@ export class PixiRenderer {
     this.worldLayer.addChild(this.foodLayer);
     this.worldLayer.addChild(this.rockLayer);
     this.worldLayer.addChild(this.agentLayer);
+    this.worldLayer.addChild(this.combatLayer);
     this.worldLayer.addChild(this.overlay);
     app.stage.addChild(this.worldLayer);
 
@@ -114,6 +126,7 @@ export class PixiRenderer {
     this.drawFood(sim);
     this.drawRocks(sim);
     this.drawAgents(sim);
+    this.drawCombatRings(sim);
     this.drawOverlay(sim);
 
     app.renderer.render(app.stage);
@@ -162,7 +175,7 @@ export class PixiRenderer {
   private drawRocks(sim: Simulation): void {
     const tex = this.textures!;
     const items = sim.world.items;
-    const radius = Math.max(ROCK_VISUAL_RADIUS, MIN_ROCK_PX / this.camera.zoom);
+    const radius = Math.max(sim.config.rockRadius, MIN_ROCK_PX / this.camera.zoom);
     const scale = rockScaleFor(radius);
     let used = 0;
 
@@ -239,6 +252,41 @@ export class PixiRenderer {
     }
   }
 
+  /**
+   * Pierścienie trafień: rosnący, gasnący okrąg w miejscu każdego ataku.
+   * Zdarzenia trafień żyją w `world.combatEvents` (wypełnia je AttackSystem)
+   * — drenujemy je tu do lokalnego stanu renderera (żywy czas animacji
+   * liczony `performance.now()`, bez związku z tickiem symulacji, bo
+   * jeden render może obejmować wiele ticków przy dużej prędkości).
+   */
+  private drawCombatRings(sim: Simulation): void {
+    const events = sim.world.combatEvents;
+    if (events.length > 0) {
+      const now = performance.now();
+      for (const e of events) {
+        this.combatRings.push({ x: e.x, y: e.y, startTime: now });
+      }
+      events.length = 0;
+    }
+
+    const g = this.combatLayer;
+    g.clear();
+    if (this.combatRings.length === 0) return;
+
+    const now = performance.now();
+    const alive: CombatRing[] = [];
+    for (const ring of this.combatRings) {
+      const t = (now - ring.startTime) / COMBAT_RING_DURATION_MS;
+      if (t >= 1) continue;
+      alive.push(ring);
+      const radius = COMBAT_RING_START_RADIUS + (COMBAT_RING_END_RADIUS - COMBAT_RING_START_RADIUS) * t;
+      const alpha = 1 - t;
+      const lw = Math.max(1, 2.5 / Math.max(this.camera.zoom, 0.0001));
+      g.circle(ring.x, ring.y, radius).stroke({ width: lw, color: 0xff5544, alpha });
+    }
+    this.combatRings = alive;
+  }
+
   private drawOverlay(sim: Simulation): void {
     const g = this.overlay;
     g.clear();
@@ -267,6 +315,7 @@ export class PixiRenderer {
     this.foodPool = [];
     this.rockPool = [];
     this.agentPool = [];
+    this.combatRings = [];
     if (this.app) {
       this.app.destroy(true, { children: true, texture: true });
       this.app = null;

@@ -7,6 +7,7 @@ import { SensorSystem } from '../systems/SensorSystem';
 import { BrainSystem } from '../systems/BrainSystem';
 import { MovementSystem } from '../systems/MovementSystem';
 import { CollisionSystem } from '../systems/CollisionSystem';
+import { RockCollisionSystem } from '../systems/RockCollisionSystem';
 import { FoodSystem } from '../systems/FoodSystem';
 import { CarrySystem } from '../systems/CarrySystem';
 import { AttackSystem } from '../systems/AttackSystem';
@@ -50,16 +51,17 @@ export class Simulation {
       new SensorSystem(), //       1. sensory
       new BrainSystem(), //        2. decyzja sieci neuronowej
       new MovementSystem(), //     3. ruch
-      new CollisionSystem(), //    4. kolizje
-      new FoodSystem(), //         5. jedzenie
-      new CarrySystem(), //        6. chwyt/upuszczenie
-      new AttackSystem(), //       7. walka
-      new EnergySystem(), //       8. zużycie energii + regeneracja zdrowia
-      new DeathSystem(), //        9. śmierć
-      new ReproductionSystem(), // 10. rozmnażanie
-      new MutationSystem(), //     11. mutacje
+      new CollisionSystem(), //    4. kolizje agent-agent
+      new RockCollisionSystem(), // 5. kamienie jako przeszkody
+      new FoodSystem(), //         6. jedzenie
+      new CarrySystem(), //        7. chwyt/upuszczenie
+      new AttackSystem(), //       8. walka
+      new EnergySystem(), //       9. zużycie energii + regeneracja zdrowia
+      new DeathSystem(), //        10. śmierć
+      new ReproductionSystem(), // 11. rozmnażanie
+      new MutationSystem(), //     12. mutacje
       new PopulationGuardSystem(), // opcjonalne zabezpieczenie
-      this.statistics, //          12. zapis statystyk
+      this.statistics, //          13. zapis statystyk
     ];
   }
 

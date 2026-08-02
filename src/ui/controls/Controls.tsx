@@ -34,6 +34,7 @@ const TUNABLE: Array<{
   { key: 'maxHiddenLayers', label: 'maks. warstw ukrytych', min: 1, max: 60, step: 1, restart: true },
   { key: 'maxLayerWidth', label: 'maks. szerokość warstwy', min: 4, max: 32, step: 1, restart: true },
   { key: 'rockCount', label: 'liczba kamieni', min: 0, max: 400, step: 10, restart: true },
+  { key: 'rockRadius', label: 'promień kamienia (przeszkoda)', min: 1, max: 20, step: 1 },
   { key: 'pickupRange', label: 'zasięg chwytu', min: 1, max: 30, step: 1 },
   { key: 'carryMetabolismMultiplier', label: 'koszt niesienia', min: 1, max: 2, step: 0.05 },
   { key: 'attackRange', label: 'zasięg ataku', min: 1, max: 40, step: 1 },
@@ -42,6 +43,7 @@ const TUNABLE: Array<{
   { key: 'speedMaturationTicks', label: 'dojrzewanie prędkości (ticki)', min: 0, max: 3000, step: 50 },
   { key: 'combatMaturationTicks', label: 'dojrzewanie bojowe (ticki)', min: 0, max: 3000, step: 50 },
   { key: 'foodClusterDriftSpeed', label: 'prędkość dryfu klastrów', min: 0, max: 6, step: 0.1 },
+  { key: 'overfeedHealthPenalty', label: 'kara za przejedzenie', min: 0, max: 2, step: 0.05 },
 ];
 
 const SPEEDS = [1, 2, 5, 10, 25, 100];
