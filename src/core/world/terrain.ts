@@ -294,10 +294,10 @@ export class TerrainGrid {
   }
 
   /**
-   * Najbliższa lita komórka w promieniu `maxDist` od `(x,y)` — do sensora
-   * "najbliższa ściana" (patrz SensorSystem). Zwraca wektor DO najbliższego
-   * PUNKTU na tej komórce (nie do jej środka), żeby "bliskość" i kierunek
-   * odzwierciedlały faktyczną krawędź ściany, tak jak przy zderzeniach.
+   * Najbliższa lita komórka w promieniu `maxDist` od `(x,y)` — do zasięgu
+   * kopania/budowania (patrz `CarrySystem`). Zwraca wektor DO najbliższego
+   * PUNKTU na tej komórce (nie do jej środka), żeby kierunek odzwierciedlał
+   * faktyczną krawędź ściany, tak jak przy zderzeniach.
    */
   findNearestSolid(
     x: number,
@@ -677,5 +677,64 @@ export class TerrainGrid {
       if (this.isSolidCell(cx, cy)) return false;
     }
     return true;
+  }
+
+  /**
+   * Rzuca promień OD `(x0,y0)` w kierunku `angle` (radiany, układ świata) na
+   * odległość maksymalnie `maxDist` — zwraca dystans do PIERWSZEJ litej
+   * komórki, albo `maxDist`, jeśli żaden promień jej nie napotka. Do stożka
+   * widzenia (patrz SensorSystem) — DOKŁADNIE ten sam DDA co
+   * `hasLineOfSight` (żeby zachować spójność z resztą sensorów blokowanych
+   * przez ściany), ale zwraca ODLEGŁOŚĆ zamiast tak/nie, bo stożek musi
+   * wiedzieć JAK DALEKO jest ściana, nie tylko czy jakaś tam jest.
+   */
+  castRay(x0: number, y0: number, angle: number, maxDist: number): number {
+    const dx = Math.cos(angle) * maxDist;
+    const dy = Math.sin(angle) * maxDist;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1e-9) return maxDist;
+
+    let cx = Math.floor(x0 / this.cellSize);
+    let cy = Math.floor(y0 / this.cellSize);
+    const endCx = Math.floor((x0 + dx) / this.cellSize);
+    const endCy = Math.floor((y0 + dy) / this.cellSize);
+
+    const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+
+    const tDeltaX = dx !== 0 ? Math.abs(this.cellSize / dx) : Infinity;
+    const tDeltaY = dy !== 0 ? Math.abs(this.cellSize / dy) : Infinity;
+
+    const nextBoundaryX = stepX > 0 ? (cx + 1) * this.cellSize : cx * this.cellSize;
+    const nextBoundaryY = stepY > 0 ? (cy + 1) * this.cellSize : cy * this.cellSize;
+
+    let tMaxX = dx !== 0 ? (nextBoundaryX - x0) / dx : Infinity;
+    let tMaxY = dy !== 0 ? (nextBoundaryY - y0) / dy : Infinity;
+
+    const maxSteps = (Math.abs(cx - endCx) + Math.abs(cy - endCy) + 4) * 2;
+    let steps = 0;
+
+    while ((cx !== endCx || cy !== endCy) && steps < maxSteps) {
+      steps++;
+      let t: number;
+      if (Math.abs(tMaxX - tMaxY) < 1e-9) {
+        if (this.isSolidCell(cx + stepX, cy) || this.isSolidCell(cx, cy + stepY)) return tMaxX * dist;
+        cx += stepX;
+        cy += stepY;
+        t = tMaxX;
+        tMaxX += tDeltaX;
+        tMaxY += tDeltaY;
+      } else if (tMaxX < tMaxY) {
+        cx += stepX;
+        t = tMaxX;
+        tMaxX += tDeltaX;
+      } else {
+        cy += stepY;
+        t = tMaxY;
+        tMaxY += tDeltaY;
+      }
+      if (this.isSolidCell(cx, cy)) return t * dist;
+    }
+    return maxDist;
   }
 }

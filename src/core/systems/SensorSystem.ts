@@ -1,8 +1,9 @@
 import type { System } from './System';
 import type { World } from '../world/world';
-import { normalizeAngle, clamp } from '../utils/math';
+import { normalizeAngle, clamp, wrap } from '../utils/math';
 import { FOOD_TYPE } from '../world/items';
 import { VisibilityCandidates, SignalCandidates } from '../utils/visibility';
+import { VISION_CONE_RAYS as RAY_COUNT, VISION_CONE_FOV } from '../neural/network';
 
 /**
  * Zbiera wejścia sieci neuronowej każdego agenta.
@@ -12,13 +13,21 @@ import { VisibilityCandidates, SignalCandidates } from '../utils/visibility';
  * w swoim promieniu widzenia. To warunek konieczny, żeby zachowania
  * mogły być emergentne, a nie odczytane z gotowej mapy.
  *
- * Sensory na obiekty (jedzenie, agent, partner, kamień) respektują ŚCIANY:
- * agent nie "widzi" przez lity teren, dokładnie jak w prawdziwym świecie —
- * jeśli najbliższy kandydat jest zasłonięty (patrz `TerrainGrid.hasLineOfSight`),
- * sensor szuka kolejnego najbliższego WIDOCZNEGO, aż do wyczerpania kandydatów
- * w zasięgu wzroku (patrz `VisibilityCandidates`). "Zagęszczenie" jest
- * jedynym wyjątkiem — to zgrubne wyczucie tłoku, nie namierzanie
- * konkretnego celu, więc zostaje bez filtrowania linii wzroku.
+ * Sensory na obiekty (jedzenie, agent, partner, kamień, sygnał) respektują
+ * ŚCIANY: agent nie "widzi" przez lity teren, dokładnie jak w prawdziwym
+ * świecie — jeśli najbliższy kandydat jest zasłonięty (patrz
+ * `TerrainGrid.hasLineOfSight`), sensor szuka kolejnego najbliższego
+ * WIDOCZNEGO, aż do wyczerpania kandydatów w zasięgu wzroku (patrz
+ * `VisibilityCandidates`). "Zagęszczenie" jest jedynym wyjątkiem — to
+ * zgrubne wyczucie tłoku, nie namierzanie konkretnego celu, więc zostaje
+ * bez filtrowania linii wzroku.
+ *
+ * Teren (ściany) NIE ma osobnego "kierunek+bliskość do najbliższej ściany"
+ * — zamiast tego agent dostaje STOŻEK WIDZENIA: wachlarz promieni rzucanych
+ * przed siebie, każdy zatrzymywany przez pierwszą litą komórkę (patrz
+ * `TerrainGrid.castRay`), niosący zarówno dystans jak i "ciepło" w punkcie
+ * trafienia. To bliżej rzeczywistej percepcji przestrzennej niż pojedynczy
+ * skalar kierunku.
  *
  * Kolejność wejść musi odpowiadać SENSOR_LABELS z neural/network.ts.
  */
@@ -169,25 +178,6 @@ export class SensorSystem implements System {
       }
       input[21] = carryingFood ? 1 : -1;
 
-      // --- najbliższa ściana (lita komórka terenu) — zasięg NIEZALEŻNY od
-      // ewoluowalnego wzroku (patrz cfg.wallSenseRadius): ściana jest dużą,
-      // fizyczną przeszkodą, którą agent "czuje" z bliska niezależnie od
-      // tego, jak daleko sięga jego wzrok na drobne obiekty. Ten sensor
-      // celowo NIE przechodzi przez filtr linii wzroku — szuka WPROST
-      // najbliższej litej komórki, więc z definicji nie może być "za"
-      // inną ścianą (byłaby wtedy bliższym wynikiem).
-      const wall = terrain.findNearestSolid(a.x, a.y, cfg.wallSenseRadius);
-      if (wall) {
-        const bearing = normalizeAngle(Math.atan2(wall.dy, wall.dx) - a.heading);
-        input[22] = Math.sin(bearing);
-        input[23] = Math.cos(bearing);
-        input[24] = 1 - wall.dist / cfg.wallSenseRadius;
-      } else {
-        input[22] = 0;
-        input[23] = 0;
-        input[24] = 0;
-      }
-
       // --- odmienność najbliższego agenta ---
       // Zamiast surowego ID (nieograniczona, wciąż rosnąca liczba — bez
       // sensu dla sieci, i tak nie generalizuje się między osobnikami),
@@ -196,41 +186,53 @@ export class SensorSystem implements System {
       // pokrewieństwo/linia genetyczna. To wystarcza do wyewoluowania
       // rozpoznawania krewnych/obcych bez twardo zakodowanej logiki.
       if (n && nearestOther) {
-        input[25] = hueDistance(a.phenotype.hue, nearestOther.phenotype.hue) * 4 - 1;
+        input[22] = hueDistance(a.phenotype.hue, nearestOther.phenotype.hue) * 4 - 1;
       } else {
-        input[25] = 0;
+        input[22] = 0;
       }
 
       // --- najgłośniejszy WIDOCZNY sygnał ---
       // Ranking po głośności, nie po odległości (patrz SignalCandidates) —
       // agent słyszy TEGO, kto krzyczy najwyraźniej, niekoniecznie tego,
-      // kto stoi najbliżej. "Głośność" na wyjściu (input[28]) to gotowy
+      // kto stoi najbliżej. "Głośność" na wyjściu (input[25]) to gotowy
       // wynik działania SignalCandidates (już 0..1: głośność nadawcy razy
       // bliskość), więc nie ma tu przeliczania jak przy sensorze jedzenia.
       const sig = this.signalCandidates.pickLoudestVisible(terrain, a.x, a.y);
       if (sig) {
         const bearing = normalizeAngle(Math.atan2(sig.dy, sig.dx) - a.heading);
-        input[26] = Math.sin(bearing);
-        input[27] = Math.cos(bearing);
-        input[28] = sig.score;
+        input[23] = Math.sin(bearing);
+        input[24] = Math.cos(bearing);
+        input[25] = sig.score;
       } else {
-        input[26] = 0;
-        input[27] = 0;
-        input[28] = 0;
+        input[23] = 0;
+        input[24] = 0;
+        input[25] = 0;
       }
 
-      // --- "ciepło" — ciągła głębokość schronienia, wycieka na zewnątrz
-      //     przez wejścia (patrz TerrainGrid.shelterWarmthAt) ---
-      input[29] =
-        terrain.shelterWarmthAt(
-          a.x,
-          a.y,
+      // --- stożek widzenia: wachlarz promieni przed agentem, zatrzymywanych
+      // przez pierwszą litą komórkę (patrz TerrainGrid.castRay), każdy z
+      // dystansem i "ciepłem" (TerrainGrid.shelterWarmthAt) w punkcie
+      // trafienia. Zasięg = ewoluowalny wzrok agenta, tak jak reszta sensorów
+      // — ściana jest widziana tym samym zmysłem co jedzenie czy inny
+      // agent, nie osobnym, sztywnym "czuciem ściany".
+      const base = a.heading - VISION_CONE_FOV / 2;
+      const step = RAY_COUNT > 1 ? VISION_CONE_FOV / (RAY_COUNT - 1) : 0;
+      for (let r = 0; r < RAY_COUNT; r++) {
+        const angle = base + step * r;
+        const dist = terrain.castRay(a.x, a.y, angle, vision);
+        const hitX = wrap(a.x + Math.cos(angle) * dist, cfg.worldSize);
+        const hitY = wrap(a.y + Math.sin(angle) * dist, cfg.worldSize);
+        const warmth = terrain.shelterWarmthAt(
+          hitX,
+          hitY,
           cfg.shelterExteriorMinCells,
           cfg.shelterMinDepth,
           cfg.shelterHeatLeakRadius,
-        ) *
-          2 -
-        1;
+        );
+        const idx = 26 + r * 2;
+        input[idx] = 1 - dist / vision;
+        input[idx + 1] = warmth * 2 - 1;
+      }
     }
   }
 }

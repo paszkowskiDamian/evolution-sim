@@ -44,9 +44,6 @@ export const SENSOR_LABELS = [
   'cos(kąt→partner)',
   'bliskość partnera',
   'niosę jedzenie',
-  'sin(kąt→ściana)',
-  'cos(kąt→ściana)',
-  'bliskość ściany',
   'odmienność najbliższego agenta',
   // --- sygnalizacja (patrz OUTPUT_LABELS "sygnał" + SensorSystem) ---
   // Agent nie odbiera "znaczenia" — tylko kierunek i głośność najgłośniejszego
@@ -57,15 +54,37 @@ export const SENSOR_LABELS = [
   'sin(kąt→sygnał)',
   'cos(kąt→sygnał)',
   'głośność sygnału',
-  // Bez tego agent doświadcza WYŁĄCZNIE skutków schronienia (tańszy
-  // metabolizm, szybsza regeneracja — patrz EnergySystem), nigdy samego
-  // faktu bycia w środku — ewolucja mogłaby szukać schronienia jedynie
-  // pośrednio, przez korelacje. "Ciepło" to CIĄGŁA (nie progowana) głębokość
-  // schronienia (patrz TerrainGrid.shelterWarmthAt) — zimno tuż przy/na
-  // zewnątrz, narasta w głąb — gradient łatwiejszy do wspinania ewolucyjnie
-  // niż twarda granica tak/nie.
-  'ciepło',
+  // --- stożek widzenia (patrz VISION_CONE_RAYS/VISION_CONE_FOV, SensorSystem) ---
+  // Zamiast pojedynczego "kierunek+bliskość do NAJBLIŻSZEJ ściany", agent
+  // dostaje WACHLARZ promieni rzucanych przed siebie (rzut promienia
+  // zatrzymuje się na pierwszej litej komórce — patrz TerrainGrid.castRay),
+  // każdy z dwiema wartościami: jak daleko sięga, i jakie jest "ciepło"
+  // (patrz TerrainGrid.shelterWarmthAt) w punkcie trafienia — agent
+  // dosłownie "widzi" gradient schronienia W GŁĘBI pola widzenia, nie tylko
+  // we własnej pozycji. To bliżej rzeczywistej percepcji przestrzennej niż
+  // pojedynczy skalar: agent może odróżnić "wąska szczelina wprost przede
+  // mną" od "otwarte przejście lekko w bok".
+  'stożek[0] odległość',
+  'stożek[0] ciepło',
+  'stożek[1] odległość',
+  'stożek[1] ciepło',
+  'stożek[2] odległość',
+  'stożek[2] ciepło',
+  'stożek[3] odległość',
+  'stożek[3] ciepło',
+  'stożek[4] odległość',
+  'stożek[4] ciepło',
+  'stożek[5] odległość',
+  'stożek[5] ciepło',
+  'stożek[6] odległość',
+  'stożek[6] ciepło',
 ] as const;
+
+/** Liczba promieni stożka widzenia — stała wewnętrzna (nie config): zmiana
+ *  zmienia layout genomu, więc nie ma sensu wystawiać jej jako suwaka na żywo. */
+export const VISION_CONE_RAYS = 7;
+/** Pole widzenia stożka (radiany), wyśrodkowane na kierunku agenta. */
+export const VISION_CONE_FOV = (120 * Math.PI) / 180;
 
 export const OUTPUT_LABELS = [
   'obrót',
@@ -81,7 +100,7 @@ export const OUTPUT_LABELS = [
   'sygnał',
 ] as const;
 
-export const INPUT_COUNT = SENSOR_LABELS.length; // 30
+export const INPUT_COUNT = SENSOR_LABELS.length; // 40
 export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 7
 
 /** Zdekodowany kształt sieci danego agenta — patrz `decodeBrainShape` w genetics/genome.ts. */

@@ -115,8 +115,6 @@ export interface SimulationConfig {
   shelterHealthRegenMultiplier: number;
   /** Mnożnik kosztu metabolizmu wewnątrz schronienia (<1 = taniej tam istnieć). */
   shelterMetabolismDiscount: number;
-  /** Zasięg sensora "najbliższa ściana" — niezależny od ewoluowalnego wzroku. */
-  wallSenseRadius: number;
 
   // --- walka ---
   attackRange: number;
@@ -309,13 +307,12 @@ export const defaultConfig: SimulationConfig = {
   // "wewnątrz", ale nie trzeba iść daleko w głąb korytarza, żeby zacząć
   // się liczyć.
   shelterMinDepth: 3,
-  // 6 komórek (150 jednostek) — porównywalne z `wallSenseRadius` (140), więc
-  // agent zaczyna wyczuwać wejście mniej więcej wtedy, gdy w ogóle zaczyna
-  // wyczuwać samą ścianę, nie wcześniej i nie znacząco później.
+  // 6 komórek (150 jednostek) — porównywalne z zasięgiem stożka widzenia
+  // (ewoluowalny wzrok, domyślnie ~260), więc wyciek ciepła jest wyczuwalny
+  // z sensownej części pola widzenia, nie tylko dosłownie na progu.
   shelterHeatLeakRadius: 6,
   shelterHealthRegenMultiplier: 3,
   shelterMetabolismDiscount: 0.6,
-  wallSenseRadius: 140,
 
   attackRange: 10,
   attackDamageBase: 18,
