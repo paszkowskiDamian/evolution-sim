@@ -1,6 +1,6 @@
 import type { System } from './System';
 import type { World } from '../world/world';
-import { clamp, wrap } from '../utils/math';
+import { ageRamp, clamp, wrap } from '../utils/math';
 
 /**
  * Zamienia wyjścia sieci na ruch fizyczny.
@@ -9,7 +9,9 @@ import { clamp, wrap } from '../utils/math';
  * out[1] — ruch    (-1 .. 1) -> mapowane na ciąg 0 .. 1
  *
  * System nie zawiera żadnej heurystyki "idź do jedzenia" — po prostu
- * wykonuje to, co sieć każe.
+ * wykonuje to, co sieć każe. Jedyny wyjątek fizjologiczny: młode osobniki
+ * są wolniejsze — prędkość maksymalna narasta liniowo od
+ * `juvenileSpeedFactor` do 100% w ciągu `speedMaturationTicks`.
  */
 export class MovementSystem implements System {
   readonly name = 'MovementSystem';
@@ -27,7 +29,8 @@ export class MovementSystem implements System {
       else if (a.heading < -Math.PI) a.heading += Math.PI * 2;
 
       const thrust = (clamp(out[1], -1, 1) + 1) * 0.5; // 0..1
-      const target = thrust * a.phenotype.maxSpeed;
+      const maturity = ageRamp(a.age, cfg.speedMaturationTicks, cfg.juvenileSpeedFactor);
+      const target = thrust * a.phenotype.maxSpeed * maturity;
       a.speed += (target - a.speed) * cfg.drag;
       if (a.speed < 0) a.speed = 0;
 

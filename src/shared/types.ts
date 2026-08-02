@@ -12,8 +12,12 @@ export interface StatsSample {
   deaths: number;
   deathsByStarvation: number;
   deathsByAge: number;
+  deathsByCombat: number;
   foodEaten: number;
   mutations: number;
+  attacks: number;
+  /** Ułamek populacji niosącej cokolwiek w danym momencie próbkowania. */
+  carryingFraction: number;
   /** Średni dystans genetyczny w losowej próbce par — miara różnorodności. */
   diversity: number;
   avgSpeedGene: number;
@@ -26,6 +30,12 @@ export interface CumulativeStats {
   totalDeaths: number;
   totalFoodEaten: number;
   totalMutations: number;
+  totalPickups: number;
+  totalDrops: number;
+  totalTilesDug: number;
+  totalTilesBuilt: number;
+  totalAttacks: number;
+  totalDeathsByCombat: number;
 }
 
 /** Widok stanu agenta dla UI — bez wycieku referencji do obiektów silnika. */
@@ -39,6 +49,8 @@ export interface AgentView {
   age: number;
   generation: number;
   motherId: number;
+  fatherId: number;
+  gender: number;
   childrenCount: number;
   foodEaten: number;
   fitness: number;
@@ -48,7 +60,15 @@ export interface AgentView {
   visionRadius: number;
   metabolism: number;
   reproThreshold: number;
+  health: number;
+  maxHealth: number;
+  /** Typy przedmiotów w kolejności podniesienia (0=kamień, 1=jedzenie); długość = carriedCount. */
+  carriedItems: number[];
+  maxCarryItems: number;
+  inShelter: boolean;
   inputs: number[];
   outputs: number[];
   hidden: number[];
+  /** Pamięć: stan ukryty warstwy rekurencyjnej, przenoszony między tickami. */
+  hiddenState: number[];
 }

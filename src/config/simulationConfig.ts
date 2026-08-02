@@ -28,10 +28,85 @@ export interface SimulationConfig {
   /** Jedzenie pojawia się w klastrach (płatach) zamiast równomiernie. */
   foodClusterCount: number;
   foodClusterRadius: number;
+  /** Prędkość dryfu płata (jednostki/tick) — patrz World.driftClusters(). */
+  foodClusterDriftSpeed: number;
+  /** Szansa na tick, że płat zmieni kierunek dryfu. */
+  foodClusterRedirectChance: number;
+
+  // --- teren (siatka: puste / lita skała) ---
+  /** Bok kwadratowej komórki terenu — patrz `core/world/terrain.ts`. */
+  terrainCellSize: number;
+
+  // --- kamienie (luźne, przenoszalne przedmioty — NIE ściany, patrz teren) ---
+  /** Pojemność pola luźnych kamieni (nie liczba na starcie — świat zaczyna
+   *  się bez żadnych, powstają wyłącznie z kopania). */
+  maxLooseRocks: number;
+  /** Promień fizyczny luźnego kamienia (czysto wizualny/do chwytu — luźne
+   *  kamienie NIE są przeszkodą, tylko teren nią jest). */
+  rockRadius: number;
+  /** Zasięg chwytu/upuszczenia/kopania względem promienia ciała. */
+  pickupRange: number;
+  /** Ticki blokady po podniesieniu/upuszczeniu — chroni przed migotaniem. */
+  carryActionCooldown: number;
+  /** Mnożnik kosztu metabolizmu ZA KAŻDY niesiony przedmiot. */
+  carryMetabolismMultiplier: number;
+  /** Ile przedmiotów agent może nieść naraz. */
+  maxCarryItems: number;
+  /** Ile luźnych kamieni musi trafić na PUSTĄ komórkę, żeby stężała w ścianę. */
+  buildRockThreshold: number;
+
+  // --- góry / jaskinie (formacje terenu) ---
+  /** Ile formacji górskich istnieje w świecie. */
+  mountainCount: number;
+  /** Promień litego masywu góry (pełny dysk skały, ZANIM wyrzeźbi się w nim tunele). */
+  mountainRadius: number;
+  /** Kroków głównego kopacza sieci tuneli wewnątrz masywu (patrz `TerrainGrid.carveTunnelNetwork`). */
+  tunnelSteps: number;
+  /** Maks. losowy skręt (radiany) na krok — większe = bardziej kręta trasa. */
+  tunnelTurnAngle: number;
+  /** Szansa na odgałęzienie nowego korytarza przy danym kroku. */
+  tunnelBranchChance: number;
+  /** Twardy limit łącznej liczby odgałęzień na górę. */
+  tunnelMaxBranches: number;
+  /** Szansa na poszerzenie danego miejsca w małą komnatę. */
+  tunnelChamberChance: number;
+  /** Zapas litej skały, który musi pozostać między siecią tuneli a krawędzią masywu. */
+  tunnelMarginToEdge: number;
+  /**
+   * Próg wielkości (w komórkach terenu) rozróżniający "schronienie" (mała,
+   * otoczona ze wszystkich stron kieszonka — jaskinia GÓRSKA albo dowolne
+   * pomieszczenie zbudowane przez agentów) od zwykłego otwartego świata.
+   * Definicja jest czysto topologiczna (spójne składowe pustych komórek —
+   * patrz `TerrainGrid.isShelterAt`), więc działa jednakowo dla obu.
+   */
+  shelterMaxCells: number;
+  /** Mnożnik regeneracji zdrowia wewnątrz schronienia (bierna korzyść). */
+  shelterHealthRegenMultiplier: number;
+  /** Mnożnik kosztu metabolizmu wewnątrz schronienia (<1 = taniej tam istnieć). */
+  shelterMetabolismDiscount: number;
+  /** Zasięg sensora "najbliższa ściana" — niezależny od ewoluowalnego wzroku. */
+  wallSenseRadius: number;
+
+  // --- walka ---
+  attackRange: number;
+  attackDamageBase: number;
+  /** Koszt energii ZA UDANY atak (nieudana próba nic nie kosztuje). */
+  attackEnergyCost: number;
+  attackCooldownTicks: number;
+  baseMaxHealth: number;
+  /** Bierna regeneracja zdrowia na tick (nie kosztuje energii). */
+  healthRegenRate: number;
 
   // --- energia ---
   maxEnergy: number;
   startEnergy: number;
+  /**
+   * Przejedzenie: energia z jedzenia, która nie mieści się już w maxEnergy
+   * (bo agent jest pełny albo prawie pełny), zamienia się w obrażenia
+   * zdrowia zamiast się po prostu marnować — mnożnik nadwyżki-energii na
+   * utracone zdrowie. 0 = wyłączone (nadwyżka po prostu przepada).
+   */
+  overfeedHealthPenalty: number;
   /** Koszt samego istnienia na tick. */
   baseMetabolism: number;
   /** Współczynnik kosztu ruchu (koszt ~ v^2). */
@@ -53,11 +128,23 @@ export interface SimulationConfig {
   /** Wiek, od którego rośnie ryzyko śmierci ze starości. */
   senescenceStart: number;
 
-  // --- rozmnażanie ---
+  // --- rozmnażanie (płciowe) ---
   reproductionEnergyThreshold: number; // ułamek maxEnergy
-  reproductionCost: number; // ułamek energii rodzica przekazany + stracony
+  reproductionCost: number; // ułamek energii KAŻDEGO z rodziców, przekazany + stracony
   reproductionCooldown: number; // ticki
+  /** Mnożnik `reproductionCooldown` zastosowany WYŁĄCZNIE do matki — ciąża/połóg kosztują więcej niż ojca. */
+  motherCooldownMultiplier: number;
   maturityAge: number;
+  /** Zasięg szukania partnera przeciwnej płci, względem promienia ciała. */
+  matingRange: number;
+
+  // --- dojrzewanie fizjologiczne ---
+  /** Ułamek maxSpeed dostępny przy wieku 0; narasta do 1.0 w `speedMaturationTicks`. */
+  juvenileSpeedFactor: number;
+  speedMaturationTicks: number;
+  /** Ułamek pełnych obrażeń ataku przy wieku 0; narasta do 1.0 w `combatMaturationTicks`. */
+  juvenileCombatFactor: number;
+  combatMaturationTicks: number;
 
   // --- mutacje ---
   mutationChance: number; // prawdopodobieństwo mutacji na gen
@@ -71,8 +158,15 @@ export interface SimulationConfig {
   /** Ile najbliższych agentów bierzemy pod uwagę przy liczeniu zagęszczenia. */
   neighborSampleLimit: number;
 
-  // --- mózg ---
-  hiddenNeurons: number;
+  // --- mózg (topologia ewoluowalna) ---
+  minHiddenLayers: number;
+  /** Też: liczba warstw, wobec której liczona jest pojemność genomu. */
+  maxHiddenLayers: number;
+  minLayerWidth: number;
+  /** Też: szerokość warstwy, wobec której liczona jest pojemność genomu. */
+  maxLayerWidth: number;
+  /** Wyłącznie punkt odniesienia do kalibracji kosztu mózgu w EnergySystem. */
+  defaultLayerWidth: number;
 
   // --- statystyki ---
   statsInterval: number; // co ile ticków zapisujemy próbkę
@@ -89,28 +183,95 @@ export const defaultConfig: SimulationConfig = {
   // Jeśli symulacja w niego uderza, to znaczy, że świat jest za bogaty
   // i selekcja przestała działać — wtedy zmniejsz `foodSpawnRate`.
   maxPopulation: 2500,
-  minPopulation: 12,
+  // Rozmnażanie płciowe wymaga, żeby DWOJE konkretnych, gotowych osobników
+  // znalazło się blisko siebie naraz — przy dawnym progu (12) na mapie
+  // 3000x3000 to statystycznie prawie nigdy się nie zdarza. Próg musi
+  // być na tyle wysoki, żeby awaryjne dosiewanie w ogóle dawało realną
+  // szansę na spotkanie partnera.
+  minPopulation: 80,
 
-  // Przyrost jedzenia wyznacza pojemność środowiska. Przy tych kosztach
-  // metabolizmu jeden osobnik potrzebuje ~0.006 jednostki jedzenia na tick,
-  // więc 5/tick utrzymuje rzędu 500–800 osobników — pod warunkiem, że
-  // potrafią je znaleźć. Reszta to już robota doboru naturalnego.
-  foodSpawnRate: 5,
-  maxFood: 1500,
-  foodEnergy: 26,
+  // Przyrost jedzenia wyznacza pojemność środowiska. Zamierzenie skąpe —
+  // presja na znalezienie i UTRZYMANIE dostępu do jedzenia (a nie tylko
+  // jego zjedzenie) ma być odczuwalna.
+  foodSpawnRate: 2.5,
+  maxFood: 700,
+  foodEnergy: 40,
   foodRadius: 4,
   foodClusterCount: 18,
   foodClusterRadius: 220,
+  // Podniesione z 0.25/0.002: przy starej wartości płat porusza się tak
+  // wolno, że stojący w miejscu agent średnio i tak siedzi WEWNĄTRZ
+  // promienia klastra (zmierzone: śr. odległość do klastra 181 < promień
+  // 220 — czyste obozowanie). Przy tej wartości średnia odległość
+  // przekracza promień klastra (293 > 220), więc trwałe stanie w miejscu
+  // przestaje się opłacać — a mimo to zjadane jedzenie ROŚNIE (9872 -> 12492
+  // w 25000-tickowym teście), bo wymuszony ruch trafia na więcej płatów,
+  // zamiast wyjadać jeden do zera.
+  foodClusterDriftSpeed: 2.0,
+  foodClusterRedirectChance: 0.006,
+
+  // Bok komórki: dzieli 3000 dokładnie na 120 kolumn. Wystarczająco duży,
+  // żeby kopanie/budowanie pojedynczej komórki było odczuwalnym zdarzeniem
+  // (nie mikro-ziarnem), wystarczająco mały, żeby ściana góry (poniżej)
+  // miała realną grubość w komórkach zamiast być jedną cienką linią.
+  terrainCellSize: 25,
+
+  maxLooseRocks: 400,
+  rockRadius: 5,
+  pickupRange: 6,
+  carryActionCooldown: 30,
+  carryMetabolismMultiplier: 1.15,
+  maxCarryItems: 5,
+  // 3 kamienie odłożone na tę samą pustą komórkę zestalają ją w ścianę —
+  // osiągalne bez gromadzenia ogromnych zapasów, ale nie z jednego rzutu.
+  buildRockThreshold: 3,
+
+  // Góra to LITY dysk skały (promień 150), a nie pusty pierścień — dopiero
+  // wewnątrz niego "błądzenie pijaka" wyrzeźbia rozgałęzioną sieć tuneli
+  // (patrz TerrainGrid.carveTunnelNetwork). Wypełnienie siatki jest
+  // z definicji szczelne — bez szczelin, przez które dałoby się przejść
+  // bez kopania — a granica sieci tuneli ma wbudowany zapas
+  // (tunnelMarginToEdge + promień komnaty), więc tunele nigdy nie
+  // przebijają się na zewnątrz masywu same z siebie.
+  mountainCount: 10,
+  mountainRadius: 150,
+  tunnelSteps: 50,
+  tunnelTurnAngle: 0.6,
+  tunnelBranchChance: 0.03,
+  tunnelMaxBranches: 3,
+  tunnelChamberChance: 0.08,
+  tunnelMarginToEdge: 25,
+  // Naturalna sieć tuneli wychodzi w praktyce na rząd kilkudziesięciu-
+  // -kilkuset komórek (zmierzone probe'em). 120 daje margines na trochę
+  // większe pomieszczenia zbudowane przez agentów, ale jest wciąż o rzędy
+  // wielkości mniejsze niż otwarty świat (siatka 3000x3000 przy
+  // cellSize=25 to 14400 komórek).
+  shelterMaxCells: 120,
+  shelterHealthRegenMultiplier: 3,
+  shelterMetabolismDiscount: 0.6,
+  wallSenseRadius: 140,
+
+  attackRange: 10,
+  attackDamageBase: 18,
+  attackEnergyCost: 4,
+  attackCooldownTicks: 40,
+  baseMaxHealth: 100,
+  healthRegenRate: 0.05,
 
   maxEnergy: 100,
   startEnergy: 60,
+  // Pełne foodEnergy (40) zmarnowane na pełnym żołądku kosztowałoby 20
+  // zdrowia — odczuwalne, ale nie zabija za jedno kęsniecie. Zmusza
+  // ewolucję do faktycznego rozpoznawania "czy jestem najedzony", zamiast
+  // jeść bezmyślnie na dotyk.
+  overfeedHealthPenalty: 0.5,
   // Koszt samego istnienia musi być odczuwalny. Gdy jest zbyt niski,
   // ewolucja znajduje strategię "stój w miejscu i czekaj aż jedzenie
   // samo na mnie spadnie" — działa, ale zabija całą resztę zachowań.
   baseMetabolism: 0.12,
   moveCost: 0.018,
   sizeCost: 0.02,
-  brainCost: 0.006,
+  brainCost: 0.003,
 
   maxSpeed: 2.6,
   maxTurnRate: 0.22,
@@ -118,13 +279,32 @@ export const defaultConfig: SimulationConfig = {
   agentRadiusMin: 3,
   agentRadiusMax: 8,
 
-  maxAge: 6000,
-  senescenceStart: 3000,
+  maxAge: 12000,
+  senescenceStart: 6000,
 
-  reproductionEnergyThreshold: 0.62,
+  // Obniżony względem oryginału (0.62): przy skąpszym jedzeniu (mniej
+  // i wolniej rosnące) średnia energia populacji osiada wyraźnie niżej —
+  // przy starym progu rozmnażanie praktycznie w ogóle nie zachodziło
+  // (zero narodzin w 15000-tickowym biegu testowym), mimo długowiecznej,
+  // stabilnej populacji.
+  reproductionEnergyThreshold: 0.4,
   reproductionCost: 0.45,
   reproductionCooldown: 120,
+  motherCooldownMultiplier: 2.5,
   maturityAge: 150,
+  // Świat jest duży (worldSize=3000) i populacja przy tych ustawieniach
+  // rzadka — przy wąskim zasięgu (np. 20, porównywalnym z attackRange)
+  // szansa, że DWOJE konkretnych, gotowych osobników trafi na siebie
+  // czysto losowym ruchem, jest bliska zeru (policzone: przy populacji 40
+  // oczekiwana liczba KOGOKOLWIEK w zasięgu 20 to ~0.006). 60 nie czyni
+  // spotkania pewnym, ale daje realną, niezerową szansę, którą ruch
+  // (a nie czysty przypadek) może domknąć.
+  matingRange: 60,
+
+  juvenileSpeedFactor: 0.3,
+  speedMaturationTicks: 400,
+  juvenileCombatFactor: 0.15,
+  combatMaturationTicks: 1000,
 
   mutationChance: 0.03,
   mutationDelta: 0.22,
@@ -135,7 +315,17 @@ export const defaultConfig: SimulationConfig = {
   visionRadius: 260,
   neighborSampleLimit: 12,
 
-  hiddenNeurons: 10,
+  // Węższy zakres niż poprzednio (20-50): przy takiej głębokości mutacja
+  // punktowa nie zdążała znaleźć działającej sieci szybciej, niż populacja
+  // wymierała do awaryjnego progu — a to blokowało w praktyce WSZYSTKO,
+  // łącznie z rozmnażaniem płciowym (potrzebuje dwojga sprawnych osobników
+  // naraz w jednym miejscu). 4-10 warstw to wciąż wielokrotność pierwotnej
+  // (1-3), ale w przeszukiwalnym zakresie.
+  minHiddenLayers: 4,
+  maxHiddenLayers: 10,
+  minLayerWidth: 4,
+  maxLayerWidth: 16,
+  defaultLayerWidth: 32,
 
   statsInterval: 20,
   statsHistoryLength: 600,

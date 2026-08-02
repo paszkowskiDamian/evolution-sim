@@ -18,6 +18,12 @@ export class StatisticsSystem implements System {
     totalDeaths: 0,
     totalFoodEaten: 0,
     totalMutations: 0,
+    totalPickups: 0,
+    totalDrops: 0,
+    totalTilesDug: 0,
+    totalTilesBuilt: 0,
+    totalAttacks: 0,
+    totalDeathsByCombat: 0,
   };
 
   // akumulatory okna próbkowania
@@ -25,8 +31,10 @@ export class StatisticsSystem implements System {
   private winDeaths = 0;
   private winStarve = 0;
   private winAge = 0;
+  private winCombat = 0;
   private winFood = 0;
   private winMutations = 0;
+  private winAttacks = 0;
 
   reset(): void {
     this.history.length = 0;
@@ -34,12 +42,20 @@ export class StatisticsSystem implements System {
     this.cumulative.totalDeaths = 0;
     this.cumulative.totalFoodEaten = 0;
     this.cumulative.totalMutations = 0;
+    this.cumulative.totalPickups = 0;
+    this.cumulative.totalDrops = 0;
+    this.cumulative.totalTilesDug = 0;
+    this.cumulative.totalTilesBuilt = 0;
+    this.cumulative.totalAttacks = 0;
+    this.cumulative.totalDeathsByCombat = 0;
     this.winBirths = 0;
     this.winDeaths = 0;
     this.winStarve = 0;
     this.winAge = 0;
+    this.winCombat = 0;
     this.winFood = 0;
     this.winMutations = 0;
+    this.winAttacks = 0;
   }
 
   update(world: World): void {
@@ -50,13 +66,21 @@ export class StatisticsSystem implements System {
     this.winDeaths += e.deaths;
     this.winStarve += e.deathsByStarvation;
     this.winAge += e.deathsByAge;
+    this.winCombat += e.deathsByCombat;
     this.winFood += e.foodEaten;
     this.winMutations += mutations;
+    this.winAttacks += e.attacks;
 
     this.cumulative.totalBirths += e.births;
     this.cumulative.totalDeaths += e.deaths;
     this.cumulative.totalFoodEaten += e.foodEaten;
     this.cumulative.totalMutations += mutations;
+    this.cumulative.totalPickups += e.itemsPickedUp;
+    this.cumulative.totalDrops += e.itemsDropped;
+    this.cumulative.totalTilesDug += e.tilesDug;
+    this.cumulative.totalTilesBuilt += e.tilesBuilt;
+    this.cumulative.totalAttacks += e.attacks;
+    this.cumulative.totalDeathsByCombat += e.deathsByCombat;
 
     const cfg = world.config;
     if (world.tick % cfg.statsInterval !== 0) return;
@@ -70,6 +94,7 @@ export class StatisticsSystem implements System {
     let sumSpeed = 0;
     let sumSize = 0;
     let sumVision = 0;
+    let sumCarrying = 0;
 
     for (const a of agents) {
       sumAge += a.age;
@@ -79,6 +104,7 @@ export class StatisticsSystem implements System {
       sumSpeed += a.phenotype.maxSpeed;
       sumSize += a.phenotype.radius;
       sumVision += a.phenotype.visionRadius;
+      if (a.carriedCount > 0) sumCarrying++;
     }
 
     const sample: StatsSample = {
@@ -94,8 +120,11 @@ export class StatisticsSystem implements System {
       deaths: this.winDeaths,
       deathsByStarvation: this.winStarve,
       deathsByAge: this.winAge,
+      deathsByCombat: this.winCombat,
       foodEaten: this.winFood,
       mutations: this.winMutations,
+      attacks: this.winAttacks,
+      carryingFraction: n ? sumCarrying / n : 0,
       diversity: this.sampleDiversity(world),
       avgSpeedGene: n ? sumSpeed / n : 0,
       avgSizeGene: n ? sumSize / n : 0,
@@ -111,8 +140,10 @@ export class StatisticsSystem implements System {
     this.winDeaths = 0;
     this.winStarve = 0;
     this.winAge = 0;
+    this.winCombat = 0;
     this.winFood = 0;
     this.winMutations = 0;
+    this.winAttacks = 0;
   }
 
   /**

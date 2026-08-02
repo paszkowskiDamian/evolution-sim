@@ -47,6 +47,17 @@ export function geneToRange(gene: number, min: number, max: number): number {
   return min + ((clamp(gene, -1, 1) + 1) * 0.5) * (max - min);
 }
 
+/**
+ * Liniowy narost cechy zależnej od wieku: `start` przy wieku 0, rośnie do
+ * 1.0 w ciągu `ticks`, potem płasko. Do efektów typu "młode są wolniejsze"
+ * / "siła bojowa rośnie z wiekiem" — bez faworyzowania konkretnego genu,
+ * to czysto fizjologiczny mnożnik na cechę już zdekodowaną z genomu.
+ */
+export function ageRamp(age: number, ticks: number, start: number): number {
+  if (ticks <= 0) return 1;
+  return start + (1 - start) * clamp(age / ticks, 0, 1);
+}
+
 /** Konwersja HSL -> 24-bitowy kolor RGB (dla Pixi tint). */
 export function hslToRgb(h: number, s: number, l: number): number {
   const a = s * Math.min(l, 1 - l);

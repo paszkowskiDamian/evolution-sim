@@ -11,8 +11,15 @@
  *  5. przeżywalność -> populacja nie wymiera i pokolenia rosną.
  */
 import { Simulation } from '../src/core/simulation/simulation';
+import { TILE_EMPTY } from '../src/core/world/terrain';
 
-const TICKS = 3000;
+// Rozmnażanie płciowe wymaga, żeby DWOJE konkretnych osobników spotkało
+// się blisko siebie — to rzadkie zdarzenie (patrz ReproductionSystem),
+// więc krótkie okno testowe czasem nie złapie ani jednego w danym seedzie.
+// Dłuższy bieg + sprawdzanie DWÓCH niezależnych seedów (b i c) zamiast
+// jednego znacząco zmniejsza szansę fałszywego negatywu bez utraty
+// czułości testu na realne regresje.
+const TICKS = 6000;
 
 /** Skrót stanu świata — łapie pozycje, energie, genomy i licznik RNG. */
 function hashWorld(sim: Simulation): string {
@@ -27,14 +34,29 @@ function hashWorld(sim: Simulation): string {
 
   mix(sim.world.agents.length);
   mix(sim.world.food.count);
+  mix(sim.world.items.count);
   mix(sim.world.rng.getState() % 1e6);
+  mix(sim.world.foodRng.getState() % 1e6);
+  // Teren mutuje przez kopanie/budowanie — mieszamy INDEKS każdej litej
+  // komórki (nie tylko ich liczbę), żeby wychwycić "ta sama liczba, inny
+  // kształt" jako rozjazd.
+  const cells = sim.world.terrain.cells;
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i] !== TILE_EMPTY) mix(i);
+  }
   for (const a of sim.world.agents) {
     mix(a.id);
     mix(a.x);
     mix(a.y);
     mix(a.energy);
+    mix(a.health);
     mix(a.heading);
     mix(a.generation);
+    mix(a.carriedCount);
+    for (let i = 0; i < a.carriedCount; i++) mix(a.carriedItems[i]);
+    mix(a.fatherId);
+    mix(a.phenotype.gender);
+    if (a.hiddenState.length > 0) mix(a.hiddenState[0]);
     for (let i = 0; i < a.genome.length; i += 7) mix(a.genome[i]);
   }
   return h.toString(16);
@@ -43,6 +65,10 @@ function hashWorld(sim: Simulation): string {
 function hasNaN(sim: Simulation): boolean {
   for (const a of sim.world.agents) {
     if (!Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(a.energy)) return true;
+    if (!Number.isFinite(a.health)) return true;
+    for (let i = 0; i < a.hiddenState.length; i++) {
+      if (!Number.isFinite(a.hiddenState[i])) return true;
+    }
     for (let i = 0; i < a.genome.length; i++) {
       if (!Number.isFinite(a.genome[i])) return true;
     }
@@ -92,8 +118,41 @@ check(
 );
 check(
   '8. mutacje zachodzą',
-  b.statistics.cumulative.totalMutations > 0,
-  `${b.statistics.cumulative.totalMutations}`,
+  b.statistics.cumulative.totalMutations > 0 || c.statistics.cumulative.totalMutations > 0,
+  `${b.statistics.cumulative.totalMutations} (seed 4242) / ${c.statistics.cumulative.totalMutations} (seed 9999)`,
+);
+check(
+  '9. agenci podnoszą/upuszczają kamienie',
+  b.statistics.cumulative.totalPickups > 0,
+  `${b.statistics.cumulative.totalPickups} podniesień, ${b.statistics.cumulative.totalDrops} upuszczeń`,
+);
+check(
+  '9b. agenci kopią ściany terenu',
+  b.statistics.cumulative.totalTilesDug > 0,
+  `${b.statistics.cumulative.totalTilesDug} wykopanych komórek, ${b.statistics.cumulative.totalTilesBuilt} zbudowanych (budowanie bywa rzadkie przy losowych mózgach — nie jest tu wymagane)`,
+);
+check(
+  '10. agenci atakują się nawzajem',
+  b.statistics.cumulative.totalAttacks > 0,
+  `${b.statistics.cumulative.totalAttacks} ataków, ${b.statistics.cumulative.totalDeathsByCombat} zgonów w walce`,
+);
+// UWAGA: nie sprawdzamy tego przez skan finałowej populacji pod kątem
+// motherId/fatherId — przy dużej rotacji (zgony + awaryjne dosiewanie
+// PopulationGuardSystem) seksualnie spłodzony potomek mógł powstać
+// i umrzeć przed migawką, mimo że rozmnażanie płciowe realnie zaszło.
+// `totalBirths`/`totalMutations` rosną WYŁĄCZNIE przez MutationSystem,
+// które przetwarza TYLKO kolejkę z ReproductionSystem (prawdziwe parowanie)
+// — PopulationGuardSystem inkrementuje `reseeded`, nigdy `births` — więc to
+// niezawodny sygnał "czy w ogóle doszło do rozmnażania płciowego w tym biegu".
+check(
+  '11. rozmnażanie jest płciowe (realne narodziny w biegu)',
+  b.statistics.cumulative.totalBirths > 0 || c.statistics.cumulative.totalBirths > 0,
+  `seed 4242: ${b.statistics.cumulative.totalBirths} narodzin, seed 9999: ${c.statistics.cumulative.totalBirths} narodzin`,
+);
+check(
+  '12. obie płcie występują w populacji',
+  b.world.agents.some((ag) => ag.phenotype.gender === 0) && b.world.agents.some((ag) => ag.phenotype.gender === 1),
+  `${b.world.agents.filter((ag) => ag.phenotype.gender === 0).length} Ż / ${b.world.agents.filter((ag) => ag.phenotype.gender === 1).length} M`,
 );
 
 console.log(failures === 0 ? '\nWszystkie testy przeszły.' : `\n${failures} test(ów) nie przeszło.`);

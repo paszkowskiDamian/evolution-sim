@@ -72,8 +72,14 @@ export function mutate(
 }
 
 /**
- * Krzyżowanie jednopunktowe — nieużywane w M3 (rozmnażanie bezpłciowe),
- * gotowe pod rozmnażanie płciowe w kolejnych milestone'ach.
+ * Krzyżowanie jednopunktowe — genom dziecka to prefiks matki + sufiks ojca
+ * w losowym punkcie cięcia. Działa wyłącznie dzięki temu, że genom ma
+ * STAŁĄ długość w całej populacji (patrz `neural/network.ts`
+ * `computeBrainLayout`) niezależnie od zdekodowanego kształtu mózgu
+ * każdego z rodziców — inaczej `a.length` i `b.length` mogłyby się różnić.
+ * Cięcie może wypaść w dowolnym miejscu (środek bloku wag, geny
+ * strukturalne, geny bio) — to celowo "brudne": ewolucja/selekcja
+ * rozlicza niespójne kombinacje tak samo jak każdą inną nieudaną mutację.
  */
 export function crossover(a: Float32Array, b: Float32Array, rng: Rng): Float32Array {
   const n = Math.min(a.length, b.length);

@@ -5,11 +5,14 @@ import {
   createTextures,
   agentScaleFor,
   foodScaleFor,
+  rockScaleFor,
   AGENT_ANCHOR_X,
   AGENT_ANCHOR_Y,
   type SpriteTextures,
 } from '../sprites/textures';
 import { hslToRgb, clamp } from '../../core/utils/math';
+import { ROCK_TYPE, FOOD_TYPE } from '../../core/world/items';
+import { TILE_ROCK } from '../../core/world/terrain';
 
 /**
  * Renderer.
@@ -23,6 +26,31 @@ import { hslToRgb, clamp } from '../../core/utils/math';
 /** Minimalny rozmiar obiektu na ekranie w pikselach (przy dużym oddaleniu). */
 const MIN_AGENT_PX = 2.6;
 const MIN_FOOD_PX = 1.1;
+const MIN_ROCK_PX = 1.4;
+
+/** Czas życia pierścienia trafienia (ms) i jego promienie na start/koniec. */
+const COMBAT_RING_DURATION_MS = 550;
+const COMBAT_RING_START_RADIUS = 6;
+const COMBAT_RING_END_RADIUS = 46;
+
+/** Jak wyżej, ale dla narodzin — dłuższy i delikatniejszy niż trafienie. */
+const BIRTH_SPARKLE_DURATION_MS = 750;
+const BIRTH_RING_START_RADIUS = 2;
+const BIRTH_RING_END_RADIUS = 26;
+const BIRTH_SPARKLE_COUNT = 6;
+const BIRTH_SPARKLE_LENGTH = 16;
+
+interface CombatRing {
+  x: number;
+  y: number;
+  startTime: number;
+}
+
+interface BirthSparkle {
+  x: number;
+  y: number;
+  startTime: number;
+}
 
 export class PixiRenderer {
   readonly camera = new Camera();
@@ -30,13 +58,21 @@ export class PixiRenderer {
   private textures: SpriteTextures | null = null;
 
   private worldLayer = new Container();
+  private caveLayer = new Graphics();
+  private terrainLayer = new Graphics();
   private foodLayer = new Container();
+  private rockLayer = new Container();
   private agentLayer = new Container();
+  private combatLayer = new Graphics();
+  private birthLayer = new Graphics();
   private overlay = new Graphics();
   private border = new Graphics();
 
   private foodPool: Sprite[] = [];
+  private rockPool: Sprite[] = [];
   private agentPool: Sprite[] = [];
+  private combatRings: CombatRing[] = [];
+  private birthSparkles: BirthSparkle[] = [];
 
   selectedId: number | null = null;
   showVision = true;
@@ -63,8 +99,13 @@ export class PixiRenderer {
     this.textures = createTextures(app.renderer);
 
     this.worldLayer.addChild(this.border);
+    this.worldLayer.addChild(this.caveLayer);
+    this.worldLayer.addChild(this.terrainLayer);
     this.worldLayer.addChild(this.foodLayer);
+    this.worldLayer.addChild(this.rockLayer);
     this.worldLayer.addChild(this.agentLayer);
+    this.worldLayer.addChild(this.combatLayer);
+    this.worldLayer.addChild(this.birthLayer);
     this.worldLayer.addChild(this.overlay);
     app.stage.addChild(this.worldLayer);
 
@@ -104,8 +145,13 @@ export class PixiRenderer {
     );
 
     this.drawBorder(sim);
+    this.drawCaves(sim);
+    this.drawTerrain(sim);
     this.drawFood(sim);
+    this.drawRocks(sim);
     this.drawAgents(sim);
+    this.drawCombatRings(sim);
+    this.drawBirthSparkles(sim);
     this.drawOverlay(sim);
 
     app.renderer.render(app.stage);
@@ -117,6 +163,61 @@ export class PixiRenderer {
     this.border
       .rect(0, 0, size, size)
       .stroke({ width: 2 / Math.max(this.camera.zoom, 0.0001), color: 0x2a3446 });
+  }
+
+  /**
+   * Delikatny podkład pod komórkami terenu aktualnie liczącymi się jako
+   * schronienie (patrz `World.isInShelter` / `TerrainGrid.getShelterCells`)
+   * — czytany NA ŻYWO z siatki terenu, nie z kształtu góry przy starcie
+   * świata. To celowe: wcześniejsza wersja rysowała stały okrąg wokół
+   * pierwotnego środka góry, więc po całkowitym przekopaniu ściany podkład
+   * zostawał widoczny mimo że mechanicznie to miejsce dawno przestało być
+   * schronieniem — myląca "duchowa" jaskinia. Czytanie żywej mapy naprawia
+   * to z definicji: podkład znika, jak tylko siatka przestaje klasyfikować
+   * dane komórki jako otoczone.
+   */
+  private drawCaves(sim: Simulation): void {
+    const g = this.caveLayer;
+    g.clear();
+    const terrain = sim.world.terrain;
+    const shelterCells = terrain.getShelterCells(sim.config.shelterMaxCells);
+    const cellSize = terrain.cellSize;
+    const cols = terrain.cols;
+
+    for (let cy = 0; cy < cols; cy++) {
+      const rowBase = cy * cols;
+      for (let cx = 0; cx < cols; cx++) {
+        if (shelterCells[rowBase + cx] !== 1) continue;
+        g.rect(cx * cellSize, cy * cellSize, cellSize, cellSize);
+      }
+    }
+    g.fill({ color: 0x3a3220, alpha: 0.28 });
+  }
+
+  /**
+   * Teren: siatka litych komórek (ściany gór, plus cokolwiek dobudowane —
+   * patrz `core/world/terrain.ts` i `CarrySystem.maybeBuild`). Rysowane jako
+   * proste kwadraty zamiast pojedynczych sprite'ów kamieni — to WŁAŚNIE ta
+   * zmiana (siatka zamiast losowego rozrzutu) usuwa szczeliny, przez które
+   * agent mógł dawniej przejść przez "ścianę".
+   */
+  private drawTerrain(sim: Simulation): void {
+    const g = this.terrainLayer;
+    g.clear();
+    const terrain = sim.world.terrain;
+    const cellSize = terrain.cellSize;
+    const cols = terrain.cols;
+    const cells = terrain.cells;
+    const lw = Math.max(0.5, 1 / Math.max(this.camera.zoom, 0.0001));
+
+    for (let cy = 0; cy < cols; cy++) {
+      const rowBase = cy * cols;
+      for (let cx = 0; cx < cols; cx++) {
+        if (cells[rowBase + cx] !== TILE_ROCK) continue;
+        g.rect(cx * cellSize, cy * cellSize, cellSize, cellSize);
+      }
+    }
+    g.fill({ color: 0x7a7f8c }).stroke({ width: lw, color: 0x40444e, alpha: 0.7 });
   }
 
   private drawFood(sim: Simulation): void {
@@ -143,11 +244,87 @@ export class PixiRenderer {
       sprite.scale.set(scale);
       sprite.x = food.xs[i];
       sprite.y = food.ys[i];
+      sprite.alpha = 1;
       used++;
+    }
+
+    // Jedzenie niesione przez agentów — usunięte z FoodField przy
+    // podniesieniu, więc rysujemy je z pozycji agenta, lekko za nim.
+    // Do 5 przedmiotów naraz — kolejne sloty ustawiają się w rządku
+    // coraz dalej za agentem, wzdłuż -heading.
+    for (const a of sim.world.agents) {
+      for (let i = 0; i < a.carriedCount; i++) {
+        if (a.carriedItems[i] !== FOOD_TYPE) continue;
+        let sprite = this.foodPool[used];
+        if (!sprite) {
+          sprite = new Sprite(tex.food);
+          sprite.anchor.set(0.5);
+          sprite.tint = 0x2f7d4f;
+          this.foodLayer.addChild(sprite);
+          this.foodPool[used] = sprite;
+        }
+        sprite.visible = true;
+        sprite.scale.set(scale);
+        const behind = a.phenotype.radius + radius * 0.6 + i * radius * 1.3;
+        sprite.x = a.x - Math.cos(a.heading) * behind;
+        sprite.y = a.y - Math.sin(a.heading) * behind;
+        sprite.alpha = 0.85;
+        used++;
+      }
     }
 
     for (let i = used; i < this.foodPool.length; i++) {
       this.foodPool[i].visible = false;
+    }
+  }
+
+  private drawRocks(sim: Simulation): void {
+    const tex = this.textures!;
+    const items = sim.world.items;
+    const radius = Math.max(sim.config.rockRadius, MIN_ROCK_PX / this.camera.zoom);
+    const scale = rockScaleFor(radius);
+    let used = 0;
+
+    const nextSprite = (): Sprite => {
+      let sprite = this.rockPool[used];
+      if (!sprite) {
+        sprite = new Sprite(tex.rock);
+        sprite.anchor.set(0.5);
+        sprite.tint = 0x8a8f9c;
+        this.rockLayer.addChild(sprite);
+        this.rockPool[used] = sprite;
+      }
+      sprite.visible = true;
+      sprite.scale.set(scale);
+      used++;
+      return sprite;
+    };
+
+    // Wolne kamienie leżące na ziemi.
+    for (let i = 0; i < items.capacity; i++) {
+      if (items.alive[i] === 0) continue;
+      const sprite = nextSprite();
+      sprite.x = items.xs[i];
+      sprite.y = items.ys[i];
+      sprite.alpha = 1;
+    }
+
+    // Kamienie niesione przez agentów — usunięte z ItemField, więc
+    // rysujemy je z pozycji agenta, lekko za nim (wzdłuż -heading), kolejne
+    // sloty coraz dalej. Niesione JEDZENIE rysuje drawFood(), nie tutaj.
+    for (const a of sim.world.agents) {
+      for (let i = 0; i < a.carriedCount; i++) {
+        if (a.carriedItems[i] !== ROCK_TYPE) continue;
+        const sprite = nextSprite();
+        const behind = a.phenotype.radius + radius * 0.6 + i * radius * 1.3;
+        sprite.x = a.x - Math.cos(a.heading) * behind;
+        sprite.y = a.y - Math.sin(a.heading) * behind;
+        sprite.alpha = 0.85;
+      }
+    }
+
+    for (let i = used; i < this.rockPool.length; i++) {
+      this.rockPool[i].visible = false;
     }
   }
 
@@ -184,6 +361,90 @@ export class PixiRenderer {
     }
   }
 
+  /**
+   * Pierścienie trafień: rosnący, gasnący okrąg w miejscu każdego ataku.
+   * Zdarzenia trafień żyją w `world.combatEvents` (wypełnia je AttackSystem)
+   * — drenujemy je tu do lokalnego stanu renderera (żywy czas animacji
+   * liczony `performance.now()`, bez związku z tickiem symulacji, bo
+   * jeden render może obejmować wiele ticków przy dużej prędkości).
+   */
+  private drawCombatRings(sim: Simulation): void {
+    const events = sim.world.combatEvents;
+    if (events.length > 0) {
+      const now = performance.now();
+      for (const e of events) {
+        this.combatRings.push({ x: e.x, y: e.y, startTime: now });
+      }
+      events.length = 0;
+    }
+
+    const g = this.combatLayer;
+    g.clear();
+    if (this.combatRings.length === 0) return;
+
+    const now = performance.now();
+    const alive: CombatRing[] = [];
+    for (const ring of this.combatRings) {
+      const t = (now - ring.startTime) / COMBAT_RING_DURATION_MS;
+      if (t >= 1) continue;
+      alive.push(ring);
+      const radius = COMBAT_RING_START_RADIUS + (COMBAT_RING_END_RADIUS - COMBAT_RING_START_RADIUS) * t;
+      const alpha = 1 - t;
+      const lw = Math.max(1, 2.5 / Math.max(this.camera.zoom, 0.0001));
+      g.circle(ring.x, ring.y, radius).stroke({ width: lw, color: 0xff5544, alpha });
+    }
+    this.combatRings = alive;
+  }
+
+  /**
+   * Iskierki narodzin: miękki, gasnący pierścień plus kilka promieni "iskier"
+   * w miejscu, gdzie właśnie urodził się nowy agent (patrz `MutationSystem`
+   * -> `world.recordBirthEvent`). Ta sama technika co `drawCombatRings`
+   * (drenowanie kolejki zdarzeń do lokalnego stanu animacji liczonego
+   * `performance.now()`), ale cieplejszy kolor i łagodniejszy przebieg —
+   * ma czytać się jako coś dobrego, w kontrze do czerwonych pierścieni walki.
+   */
+  private drawBirthSparkles(sim: Simulation): void {
+    const events = sim.world.birthEvents;
+    if (events.length > 0) {
+      const now = performance.now();
+      for (const e of events) {
+        this.birthSparkles.push({ x: e.x, y: e.y, startTime: now });
+      }
+      events.length = 0;
+    }
+
+    const g = this.birthLayer;
+    g.clear();
+    if (this.birthSparkles.length === 0) return;
+
+    const now = performance.now();
+    const alive: BirthSparkle[] = [];
+    const color = 0xffcf6b;
+    for (const s of this.birthSparkles) {
+      const t = (now - s.startTime) / BIRTH_SPARKLE_DURATION_MS;
+      if (t >= 1) continue;
+      alive.push(s);
+      const alpha = 1 - t;
+      const lw = Math.max(1, 2 / Math.max(this.camera.zoom, 0.0001));
+
+      const radius = BIRTH_RING_START_RADIUS + (BIRTH_RING_END_RADIUS - BIRTH_RING_START_RADIUS) * t;
+      g.circle(s.x, s.y, radius).stroke({ width: lw, color, alpha });
+
+      // Promienie iskier: krótkie odcinki wylatujące na zewnątrz, gasnące
+      // razem z pierścieniem — daje efekt "rozbłysku", nie tylko okręgu.
+      const sparkleReach = radius + BIRTH_SPARKLE_LENGTH * t;
+      for (let i = 0; i < BIRTH_SPARKLE_COUNT; i++) {
+        const angle = (i / BIRTH_SPARKLE_COUNT) * Math.PI * 2;
+        const innerR = radius * 0.6;
+        g.moveTo(s.x + Math.cos(angle) * innerR, s.y + Math.sin(angle) * innerR)
+          .lineTo(s.x + Math.cos(angle) * sparkleReach, s.y + Math.sin(angle) * sparkleReach)
+          .stroke({ width: lw, color, alpha: alpha * 0.8 });
+      }
+    }
+    this.birthSparkles = alive;
+  }
+
   private drawOverlay(sim: Simulation): void {
     const g = this.overlay;
     g.clear();
@@ -210,7 +471,10 @@ export class PixiRenderer {
   destroy(): void {
     this.destroyed = true;
     this.foodPool = [];
+    this.rockPool = [];
     this.agentPool = [];
+    this.combatRings = [];
+    this.birthSparkles = [];
     if (this.app) {
       this.app.destroy(true, { children: true, texture: true });
       this.app = null;
