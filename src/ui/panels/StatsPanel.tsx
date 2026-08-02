@@ -48,6 +48,7 @@ export function StatsPanel({ snapshot }: { snapshot: UiSnapshot }) {
       <div className="stat-grid">
         <Stat label="tick" value={snapshot.tick.toLocaleString('pl-PL')} />
         <Stat label="osobniki" value={snapshot.population} />
+        <Stat label="płeć (Ż/M)" value={`${snapshot.femaleCount} / ${snapshot.maleCount}`} />
         <Stat label="jedzenie" value={snapshot.foodCount} />
         <Stat label="pokolenie" value={snapshot.maxGeneration} />
         <Stat label="śr. wiek" value={snapshot.avgAge.toFixed(0)} />
