@@ -84,12 +84,14 @@ export class SensorSystem implements System {
       });
 
       const n = this.agentCandidates.pickNearestVisible(terrain, a.x, a.y);
+      let nearestOther: ReturnType<typeof world.agentById.get> = undefined;
       if (n) {
         const dist = Math.sqrt(n.dist2);
         const bearing = normalizeAngle(Math.atan2(n.dy, n.dx) - a.heading);
         input[7] = Math.sin(bearing);
         input[8] = Math.cos(bearing);
         input[9] = 1 - dist / vision;
+        nearestOther = world.agentById.get(n.id);
       } else {
         input[7] = 0;
         input[8] = 0;
@@ -171,6 +173,25 @@ export class SensorSystem implements System {
         input[23] = 0;
         input[24] = 0;
       }
+
+      // --- odmienność najbliższego agenta ---
+      // Zamiast surowego ID (nieograniczona, wciąż rosnąca liczba — bez
+      // sensu dla sieci, i tak nie generalizuje się między osobnikami),
+      // agent "rozpoznaje" sąsiada przez różnicę BARWY — genu dziedzicznego
+      // od rodzica jak każdy inny, więc podobna barwa = bliskie
+      // pokrewieństwo/linia genetyczna. To wystarcza do wyewoluowania
+      // rozpoznawania krewnych/obcych bez twardo zakodowanej logiki.
+      if (n && nearestOther) {
+        input[25] = hueDistance(a.phenotype.hue, nearestOther.phenotype.hue) * 4 - 1;
+      } else {
+        input[25] = 0;
+      }
     }
   }
+}
+
+/** Odległość na kole barw (0 = ten sam odcień, 0.5 = przeciwny kraniec koła). */
+function hueDistance(h1: number, h2: number): number {
+  const d = Math.abs(h1 - h2);
+  return Math.min(d, 1 - d);
 }
