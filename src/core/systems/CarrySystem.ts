@@ -159,5 +159,16 @@ export class CarrySystem implements System {
     for (const id of ids) items.remove(id);
     terrain.set(cx, cy, TILE_ROCK);
     world.events.tilesBuilt++;
+
+    // Jedzenie akurat leżące na tej komórce (przypadkiem, z dryfującego
+    // płata) nie może zostać "zamurowane" — usuwamy je razem z zestaleniem,
+    // tak samo jak spawnFood() od razu unika litych komórek.
+    const food = world.food;
+    for (let i = 0; i < food.capacity; i++) {
+      if (food.alive[i] === 0) continue;
+      if (terrain.cellX(food.xs[i]) === cx && terrain.cellY(food.ys[i]) === cy) {
+        food.remove(i);
+      }
+    }
   }
 }

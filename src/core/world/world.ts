@@ -316,30 +316,50 @@ export class World {
 
   // -------------------------------------------------------------- jedzenie
 
-  /** Jedzenie pojawia się w dryfujących płatach, nie równomiernie —
-   *  to tworzy gradient, w którym w ogóle opłaca się cokolwiek szukać.
-   *  Ułamek `caveFoodFraction` trafia zamiast tego do wnętrza losowej
-   *  góry — jedzenie "za ścianą", które wymaga przekopania się do jaskini. */
+  /**
+   * Jedzenie pojawia się w dryfujących płatach, nie równomiernie — to tworzy
+   * gradient, w którym w ogóle opłaca się cokolwiek szukać. Ułamek
+   * `caveFoodFraction` trafia zamiast tego do wnętrza losowej góry —
+   * jedzenie "za ścianą", które wymaga przekopania się do jaskini.
+   *
+   * Płaty jedzenia są losowo rozrzucone PO CAŁEJ mapie, niezależnie od tego,
+   * gdzie stoją góry — promień płata (`foodClusterRadius`, 220) jest
+   * większy niż typowa góra, więc płat regularnie zachodzi na fragment
+   * ściany. Bez sprawdzenia terenu próbkowanie punktu wewnątrz płata mogłoby
+   * (i realnie potrafiło) wylądować NA litej komórce — jedzenie "rosnące"
+   * w środku skały. Próbujemy do `MAX_ATTEMPTS` razy, odrzucając trafienia
+   * w ścianę; przy typowych rozmiarach płatów/gór prawie zawsze wystarcza
+   * pierwsza próba.
+   */
   spawnFood(): number {
     if (this.food.isFull) return -1;
     const cfg = this.config;
+    const MAX_ATTEMPTS = 20;
+
     if (this.mountains.length > 0 && this.foodRng.chance(cfg.caveFoodFraction)) {
       const cave = this.mountains[this.foodRng.int(this.mountains.length)];
-      const angle = this.foodRng.range(0, TAU);
-      // *0.85 trzyma jedzenie z dala od samej ściany skalnej, bezpiecznie
-      // wewnątrz pustego wnętrza jaskini.
-      const dist = Math.sqrt(this.foodRng.next()) * cfg.mountainInnerRadius * 0.85;
-      const x = wrap(cave.x + Math.cos(angle) * dist, cfg.worldSize);
-      const y = wrap(cave.y + Math.sin(angle) * dist, cfg.worldSize);
-      return this.food.spawn(x, y);
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const angle = this.foodRng.range(0, TAU);
+        // *0.85 trzyma jedzenie z dala od samej ściany skalnej, bezpiecznie
+        // wewnątrz pustego wnętrza jaskini.
+        const dist = Math.sqrt(this.foodRng.next()) * cfg.mountainInnerRadius * 0.85;
+        const x = wrap(cave.x + Math.cos(angle) * dist, cfg.worldSize);
+        const y = wrap(cave.y + Math.sin(angle) * dist, cfg.worldSize);
+        if (!this.terrain.isSolidAt(x, y)) return this.food.spawn(x, y);
+      }
+      return -1;
     }
+
     const cluster = this.clusters[this.foodRng.int(this.clusters.length)];
-    const angle = this.foodRng.range(0, TAU);
-    // sqrt daje równomierne wypełnienie koła zamiast skupiska w środku
-    const dist = Math.sqrt(this.foodRng.next()) * cfg.foodClusterRadius;
-    const x = wrap(cluster.x + Math.cos(angle) * dist, cfg.worldSize);
-    const y = wrap(cluster.y + Math.sin(angle) * dist, cfg.worldSize);
-    return this.food.spawn(x, y);
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const angle = this.foodRng.range(0, TAU);
+      // sqrt daje równomierne wypełnienie koła zamiast skupiska w środku
+      const dist = Math.sqrt(this.foodRng.next()) * cfg.foodClusterRadius;
+      const x = wrap(cluster.x + Math.cos(angle) * dist, cfg.worldSize);
+      const y = wrap(cluster.y + Math.sin(angle) * dist, cfg.worldSize);
+      if (!this.terrain.isSolidAt(x, y)) return this.food.spawn(x, y);
+    }
+    return -1;
   }
 
   /** Dryf płatów jedzenia — zmusza populację do ciągłej migracji zamiast
