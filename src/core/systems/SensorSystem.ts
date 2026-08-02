@@ -107,8 +107,8 @@ export class SensorSystem implements System {
       // --- szum ---
       input[11] = rng.symmetric(1);
 
-      // --- czy coś niosę ---
-      input[12] = a.carriedItemType >= 0 ? 1 : -1;
+      // --- jak bardzo zapełniony ekwipunek ---
+      input[12] = (a.carriedCount / cfg.maxCarryItems) * 2 - 1;
 
       // --- najbliższy kamień (lustrzane odbicie sensora jedzenia) ---
       const it = queryNearest(world.itemGrid, a.x, a.y, vision, this.nearestItem);
@@ -143,8 +143,15 @@ export class SensorSystem implements System {
         input[20] = 0;
       }
 
-      // --- co niosę (rozróżnienie w obrębie "niosę cokolwiek" z input[12]) ---
-      input[21] = a.carriedItemType === FOOD_TYPE ? 1 : -1;
+      // --- czy wśród niesionych przedmiotów jest jedzenie ---
+      let carryingFood = false;
+      for (let i = 0; i < a.carriedCount; i++) {
+        if (a.carriedItems[i] === FOOD_TYPE) {
+          carryingFood = true;
+          break;
+        }
+      }
+      input[21] = carryingFood ? 1 : -1;
     }
   }
 }

@@ -44,8 +44,24 @@ export interface SimulationConfig {
   pickupRange: number;
   /** Ticki blokady po podniesieniu/upuszczeniu — chroni przed migotaniem. */
   carryActionCooldown: number;
-  /** Mnożnik kosztu metabolizmu podczas niesienia czegokolwiek. */
+  /** Mnożnik kosztu metabolizmu ZA KAŻDY niesiony przedmiot. */
   carryMetabolismMultiplier: number;
+  /** Ile przedmiotów agent może nieść naraz. */
+  maxCarryItems: number;
+
+  // --- góry / jaskinie (klastry kamieni tworzące teren) ---
+  /** Ile formacji górskich istnieje w świecie. */
+  mountainCount: number;
+  /** Promień pustego wnętrza (jaskini) — bez kamieni, tu chowa się jedzenie i działa schronienie. */
+  mountainInnerRadius: number;
+  /** Zewnętrzny promień pierścienia skalnego — kamienie góry mieszczą się między inner a outer. */
+  mountainOuterRadius: number;
+  /** Ułamek spawnów jedzenia kierowany do wnętrza losowej góry (jedzenie "za ścianą"). */
+  caveFoodFraction: number;
+  /** Mnożnik regeneracji zdrowia wewnątrz jaskini (bierna korzyść ze schronienia). */
+  shelterHealthRegenMultiplier: number;
+  /** Mnożnik kosztu metabolizmu wewnątrz jaskini (<1 = taniej istnieć w schronieniu). */
+  shelterMetabolismDiscount: number;
 
   // --- walka ---
   attackRange: number;
@@ -180,6 +196,19 @@ export const defaultConfig: SimulationConfig = {
   pickupRange: 6,
   carryActionCooldown: 30,
   carryMetabolismMultiplier: 1.15,
+  maxCarryItems: 5,
+
+  // Góry to grube pierścienie kamieni (100-145 od środka) wokół pustego
+  // wnętrza — gęstsza, bardziej "terenowa" struktura niż równomierny
+  // rozsiew: agent napotyka zwartą ścianę, a nie pojedyncze przeszkody.
+  // 1500 kamieni / 10 gór = ~150 kamieni/górę na pierścieniu o polu ~30000
+  // jednostek² — pokrycie ~40%, wystarczające żeby wymagało kopania.
+  mountainCount: 10,
+  mountainInnerRadius: 100,
+  mountainOuterRadius: 145,
+  caveFoodFraction: 0.12,
+  shelterHealthRegenMultiplier: 3,
+  shelterMetabolismDiscount: 0.6,
 
   attackRange: 10,
   attackDamageBase: 18,

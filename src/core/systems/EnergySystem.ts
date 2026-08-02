@@ -12,12 +12,18 @@ import { referenceBrainComplexity } from '../neural/network';
  *   - duże ciało         -> ~ r²
  *   - duży mózg          -> ~ liczba faktycznie użytych wag (nie pojemności)
  *   - dobry wzrok        -> ~ zasięg widzenia
- *   - niesienie czegoś   -> mały narzut (patrz `carryMetabolismMultiplier`)
+ *   - niesienie czegoś   -> narzut ROSNĄCY z liczbą niesionych przedmiotów
+ *     (patrz `carryMetabolismMultiplier`)
  *
  * Bez tych kosztów ewolucja zawsze wybrałaby "wszystko na maksa"
  * i nie powstałaby żadna specjalizacja. Bez narzutu za niesienie mechanika
  * kamieni byłaby ewolucyjnie obojętna — nic by nie odróżniało agenta,
  * który sensownie z niej korzysta, od takiego, który ignoruje ją losowo.
+ *
+ * Schronienie (wnętrze jaskini, patrz `World.isInShelter`) daje bierny
+ * bonus: tańszy metabolizm i szybsza regeneracja zdrowia — nagroda za
+ * przekopanie się do środka góry, bez żadnej odporności na obrażenia
+ * (to wciąż wyłącznie efekt metaboliczny, nie mechanika walki).
  */
 export class EnergySystem implements System {
   readonly name = 'EnergySystem';
@@ -34,7 +40,9 @@ export class EnergySystem implements System {
       const bodyFactor = (p.radius / rMax) * (p.radius / rMax);
       const visionFactor = p.visionRadius / cfg.visionRadius;
       const complexityRatio = a.brain.complexity / refComplexity;
-      const carryFactor = a.carriedItemType >= 0 ? cfg.carryMetabolismMultiplier : 1;
+      const carryFactor = 1 + (cfg.carryMetabolismMultiplier - 1) * a.carriedCount;
+      const sheltered = world.isInShelter(a.x, a.y);
+      const metabolismFactor = sheltered ? cfg.shelterMetabolismDiscount : 1;
 
       const cost =
         (cfg.baseMetabolism +
@@ -42,10 +50,12 @@ export class EnergySystem implements System {
           cfg.sizeCost * bodyFactor +
           cfg.brainCost * complexityRatio * (0.5 + visionFactor)) *
         p.metabolism *
-        carryFactor;
+        carryFactor *
+        metabolismFactor;
 
       a.energy -= cost;
-      a.health = Math.min(p.maxHealth, a.health + cfg.healthRegenRate);
+      const regenFactor = sheltered ? cfg.shelterHealthRegenMultiplier : 1;
+      a.health = Math.min(p.maxHealth, a.health + cfg.healthRegenRate * regenFactor);
       a.age++;
       if (a.reproCooldown > 0) a.reproCooldown--;
     }

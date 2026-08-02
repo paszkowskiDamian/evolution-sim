@@ -32,6 +32,7 @@ export interface CumulativeStats {
   totalMutations: number;
   totalPickups: number;
   totalDrops: number;
+  totalRocksDug: number;
   totalAttacks: number;
   totalDeathsByCombat: number;
 }
@@ -60,7 +61,10 @@ export interface AgentView {
   reproThreshold: number;
   health: number;
   maxHealth: number;
-  carrying: boolean;
+  /** Typy przedmiotów w kolejności podniesienia (0=kamień, 1=jedzenie); długość = carriedCount. */
+  carriedItems: number[];
+  maxCarryItems: number;
+  inShelter: boolean;
   inputs: number[];
   outputs: number[];
   hidden: number[];

@@ -44,6 +44,7 @@ export class PixiRenderer {
   private textures: SpriteTextures | null = null;
 
   private worldLayer = new Container();
+  private caveLayer = new Graphics();
   private foodLayer = new Container();
   private rockLayer = new Container();
   private agentLayer = new Container();
@@ -81,6 +82,7 @@ export class PixiRenderer {
     this.textures = createTextures(app.renderer);
 
     this.worldLayer.addChild(this.border);
+    this.worldLayer.addChild(this.caveLayer);
     this.worldLayer.addChild(this.foodLayer);
     this.worldLayer.addChild(this.rockLayer);
     this.worldLayer.addChild(this.agentLayer);
@@ -124,6 +126,7 @@ export class PixiRenderer {
     );
 
     this.drawBorder(sim);
+    this.drawCaves(sim);
     this.drawFood(sim);
     this.drawRocks(sim);
     this.drawAgents(sim);
@@ -139,6 +142,23 @@ export class PixiRenderer {
     this.border
       .rect(0, 0, size, size)
       .stroke({ width: 2 / Math.max(this.camera.zoom, 0.0001), color: 0x2a3446 });
+  }
+
+  /**
+   * Delikatny zarys wnętrza każdej jaskini (schronienie — patrz
+   * `World.isInShelter`) — góry same są widoczne przez gęstość leżących
+   * tam kamieni, ale bez tego obrysu nic nie odróżnia "pustego środka"
+   * od zwykłej otwartej przestrzeni na planszy.
+   */
+  private drawCaves(sim: Simulation): void {
+    const g = this.caveLayer;
+    g.clear();
+    const lw = Math.max(1, 1.5 / Math.max(this.camera.zoom, 0.0001));
+    for (const m of sim.world.getMountains()) {
+      g.circle(m.x, m.y, sim.config.mountainInnerRadius)
+        .fill({ color: 0x3a3220, alpha: 0.12 })
+        .stroke({ width: lw, color: 0x6b5a35, alpha: 0.35 });
+    }
   }
 
   private drawFood(sim: Simulation): void {
@@ -171,23 +191,27 @@ export class PixiRenderer {
 
     // Jedzenie niesione przez agentów — usunięte z FoodField przy
     // podniesieniu, więc rysujemy je z pozycji agenta, lekko za nim.
+    // Do 5 przedmiotów naraz — kolejne sloty ustawiają się w rządku
+    // coraz dalej za agentem, wzdłuż -heading.
     for (const a of sim.world.agents) {
-      if (a.carriedItemType !== FOOD_TYPE) continue;
-      let sprite = this.foodPool[used];
-      if (!sprite) {
-        sprite = new Sprite(tex.food);
-        sprite.anchor.set(0.5);
-        sprite.tint = 0x2f7d4f;
-        this.foodLayer.addChild(sprite);
-        this.foodPool[used] = sprite;
+      for (let i = 0; i < a.carriedCount; i++) {
+        if (a.carriedItems[i] !== FOOD_TYPE) continue;
+        let sprite = this.foodPool[used];
+        if (!sprite) {
+          sprite = new Sprite(tex.food);
+          sprite.anchor.set(0.5);
+          sprite.tint = 0x2f7d4f;
+          this.foodLayer.addChild(sprite);
+          this.foodPool[used] = sprite;
+        }
+        sprite.visible = true;
+        sprite.scale.set(scale);
+        const behind = a.phenotype.radius + radius * 0.6 + i * radius * 1.3;
+        sprite.x = a.x - Math.cos(a.heading) * behind;
+        sprite.y = a.y - Math.sin(a.heading) * behind;
+        sprite.alpha = 0.85;
+        used++;
       }
-      sprite.visible = true;
-      sprite.scale.set(scale);
-      const behind = a.phenotype.radius + radius * 0.6;
-      sprite.x = a.x - Math.cos(a.heading) * behind;
-      sprite.y = a.y - Math.sin(a.heading) * behind;
-      sprite.alpha = 0.85;
-      used++;
     }
 
     for (let i = used; i < this.foodPool.length; i++) {
@@ -227,15 +251,17 @@ export class PixiRenderer {
     }
 
     // Kamienie niesione przez agentów — usunięte z ItemField, więc
-    // rysujemy je z pozycji agenta, lekko za nim (wzdłuż -heading).
-    // Niesione JEDZENIE rysuje drawFood(), nie tutaj.
+    // rysujemy je z pozycji agenta, lekko za nim (wzdłuż -heading), kolejne
+    // sloty coraz dalej. Niesione JEDZENIE rysuje drawFood(), nie tutaj.
     for (const a of sim.world.agents) {
-      if (a.carriedItemType !== ROCK_TYPE) continue;
-      const sprite = nextSprite();
-      const behind = a.phenotype.radius + radius * 0.6;
-      sprite.x = a.x - Math.cos(a.heading) * behind;
-      sprite.y = a.y - Math.sin(a.heading) * behind;
-      sprite.alpha = 0.85;
+      for (let i = 0; i < a.carriedCount; i++) {
+        if (a.carriedItems[i] !== ROCK_TYPE) continue;
+        const sprite = nextSprite();
+        const behind = a.phenotype.radius + radius * 0.6 + i * radius * 1.3;
+        sprite.x = a.x - Math.cos(a.heading) * behind;
+        sprite.y = a.y - Math.sin(a.heading) * behind;
+        sprite.alpha = 0.85;
+      }
     }
 
     for (let i = used; i < this.rockPool.length; i++) {

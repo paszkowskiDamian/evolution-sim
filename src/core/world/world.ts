@@ -6,7 +6,7 @@ import { FoodField } from './food';
 import { ItemField, ROCK_TYPE } from './items';
 import { createRandomGenome, genomeLength } from '../genetics/genome';
 import { mutate, makeMutationReport } from '../genetics/mutation';
-import { TAU, wrap } from '../utils/math';
+import { TAU, wrap, wrapDelta } from '../utils/math';
 
 /** Liczniki zdarzeń z pojedynczego ticka — czyszczone na jego początku. */
 export interface TickEvents {
@@ -18,6 +18,7 @@ export interface TickEvents {
   foodEaten: number;
   itemsPickedUp: number;
   itemsDropped: number;
+  rocksDug: number;
   attacks: number;
   pointMutations: number;
   swapMutations: number;
@@ -49,6 +50,16 @@ interface FoodCluster {
   y: number;
   vx: number;
   vy: number;
+}
+
+/**
+ * Formacja górska: nieruchomy środek pierścienia skalnego (patrz
+ * `spawnRock`) z pustym wnętrzem — jaskinią. W przeciwieństwie do płatów
+ * jedzenia góry NIE dryfują — to trwała rzeźba terenu, nie zasób.
+ */
+interface Mountain {
+  x: number;
+  y: number;
 }
 
 const LINEAGE_CAPACITY = 4000;
@@ -102,6 +113,7 @@ export class World {
     foodEaten: 0,
     itemsPickedUp: 0,
     itemsDropped: 0,
+    rocksDug: 0,
     attacks: 0,
     pointMutations: 0,
     swapMutations: 0,
@@ -129,6 +141,7 @@ export class World {
 
   private nextAgentId = 1;
   private clusters: FoodCluster[] = [];
+  private mountains: Mountain[] = [];
   maxGeneration = 0;
 
   /**
@@ -187,6 +200,16 @@ export class World {
         y: this.foodRng.range(0, this.config.worldSize),
         vx: this.foodRng.symmetric(this.config.foodClusterDriftSpeed),
         vy: this.foodRng.symmetric(this.config.foodClusterDriftSpeed),
+      });
+    }
+
+    // Góry są nieruchome — generowane raz, w przeciwieństwie do płatów
+    // jedzenia nie mają własnej dynamiki dryfu.
+    this.mountains = [];
+    for (let i = 0; i < this.config.mountainCount; i++) {
+      this.mountains.push({
+        x: this.foodRng.range(0, this.config.worldSize),
+        y: this.foodRng.range(0, this.config.worldSize),
       });
     }
 
@@ -278,10 +301,22 @@ export class World {
   // -------------------------------------------------------------- jedzenie
 
   /** Jedzenie pojawia się w dryfujących płatach, nie równomiernie —
-   *  to tworzy gradient, w którym w ogóle opłaca się cokolwiek szukać. */
+   *  to tworzy gradient, w którym w ogóle opłaca się cokolwiek szukać.
+   *  Ułamek `caveFoodFraction` trafia zamiast tego do wnętrza losowej
+   *  góry — jedzenie "za ścianą", które wymaga przekopania się do jaskini. */
   spawnFood(): number {
     if (this.food.isFull) return -1;
     const cfg = this.config;
+    if (this.mountains.length > 0 && this.foodRng.chance(cfg.caveFoodFraction)) {
+      const cave = this.mountains[this.foodRng.int(this.mountains.length)];
+      const angle = this.foodRng.range(0, TAU);
+      // *0.85 trzyma jedzenie z dala od samej ściany skalnej, bezpiecznie
+      // wewnątrz pustego wnętrza jaskini.
+      const dist = Math.sqrt(this.foodRng.next()) * cfg.mountainInnerRadius * 0.85;
+      const x = wrap(cave.x + Math.cos(angle) * dist, cfg.worldSize);
+      const y = wrap(cave.y + Math.sin(angle) * dist, cfg.worldSize);
+      return this.food.spawn(x, y);
+    }
     const cluster = this.clusters[this.foodRng.int(this.clusters.length)];
     const angle = this.foodRng.range(0, TAU);
     // sqrt daje równomierne wypełnienie koła zamiast skupiska w środku
@@ -312,19 +347,57 @@ export class World {
   // ------------------------------------------------------------ przedmioty
 
   /**
-   * Kamienie rozsiewamy równomiernie (bez klastrów — w przeciwieństwie do
-   * jedzenia nie ma tu gradientu wartego śledzenia), przez `foodRng`
-   * NIGDY `rng`: rozkład kamieni jest cechą ŚRODOWISKA, a eksperyment
-   * "wspólny ogród" (patrz scripts/headless.ts) wymaga, żeby środowisko
-   * było identyczne niezależnie od tego, ile razy agenci sięgnęli po
-   * losowość.
+   * Kamienie rozsiewamy w pierścieniu wokół losowej góry (patrz `Mountain`)
+   * — gęsta ściana skalna otaczająca puste wnętrze (jaskinię), a nie
+   * równomierny rozsiew. Próbkowanie jednostajne w pierścieniu:
+   * `dist = sqrt(inner² + u*(outer²-inner²))` daje równą gęstość
+   * powierzchniową (samo `sqrt(u)` faworyzowałoby środek).
+   *
+   * Zawsze przez `foodRng`, NIGDY `rng`: rozkład kamieni jest cechą
+   * ŚRODOWISKA, a eksperyment "wspólny ogród" (patrz scripts/headless.ts)
+   * wymaga, żeby środowisko było identyczne niezależnie od tego, ile razy
+   * agenci sięgnęli po losowość.
    */
   spawnRock(): number {
     if (this.items.isFull) return -1;
     const cfg = this.config;
-    const x = this.foodRng.range(0, cfg.worldSize);
-    const y = this.foodRng.range(0, cfg.worldSize);
+    if (this.mountains.length === 0) {
+      const x = this.foodRng.range(0, cfg.worldSize);
+      const y = this.foodRng.range(0, cfg.worldSize);
+      return this.items.spawn(x, y, ROCK_TYPE);
+    }
+    const m = this.mountains[this.foodRng.int(this.mountains.length)];
+    const angle = this.foodRng.range(0, TAU);
+    const inner = cfg.mountainInnerRadius;
+    const outer = cfg.mountainOuterRadius;
+    const dist = Math.sqrt(inner * inner + this.foodRng.next() * (outer * outer - inner * inner));
+    const x = wrap(m.x + Math.cos(angle) * dist, cfg.worldSize);
+    const y = wrap(m.y + Math.sin(angle) * dist, cfg.worldSize);
     return this.items.spawn(x, y, ROCK_TYPE);
+  }
+
+  /**
+   * Czy punkt leży wewnątrz jaskini (pustego wnętrza) którejś z gór —
+   * używane przez EnergySystem do biernej korzyści ze schronienia. Odległość
+   * liczona z zawinięciem (świat jest torusem), tak samo jak w `SpatialGrid`.
+   */
+  isInShelter(x: number, y: number): boolean {
+    const cfg = this.config;
+    const r2 = cfg.mountainInnerRadius * cfg.mountainInnerRadius;
+    for (const m of this.mountains) {
+      let dx = x - m.x;
+      let dy = y - m.y;
+      if (cfg.wrapEdges) {
+        dx = wrapDelta(dx, cfg.worldSize);
+        dy = wrapDelta(dy, cfg.worldSize);
+      }
+      if (dx * dx + dy * dy < r2) return true;
+    }
+    return false;
+  }
+
+  getMountains(): ReadonlyArray<{ x: number; y: number }> {
+    return this.mountains;
   }
 
   // ------------------------------------------------------------- zdarzenia
@@ -339,6 +412,7 @@ export class World {
     e.foodEaten = 0;
     e.itemsPickedUp = 0;
     e.itemsDropped = 0;
+    e.rocksDug = 0;
     e.attacks = 0;
     e.pointMutations = 0;
     e.swapMutations = 0;

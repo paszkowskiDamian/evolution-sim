@@ -20,6 +20,7 @@ export class StatisticsSystem implements System {
     totalMutations: 0,
     totalPickups: 0,
     totalDrops: 0,
+    totalRocksDug: 0,
     totalAttacks: 0,
     totalDeathsByCombat: 0,
   };
@@ -42,6 +43,7 @@ export class StatisticsSystem implements System {
     this.cumulative.totalMutations = 0;
     this.cumulative.totalPickups = 0;
     this.cumulative.totalDrops = 0;
+    this.cumulative.totalRocksDug = 0;
     this.cumulative.totalAttacks = 0;
     this.cumulative.totalDeathsByCombat = 0;
     this.winBirths = 0;
@@ -73,6 +75,7 @@ export class StatisticsSystem implements System {
     this.cumulative.totalMutations += mutations;
     this.cumulative.totalPickups += e.itemsPickedUp;
     this.cumulative.totalDrops += e.itemsDropped;
+    this.cumulative.totalRocksDug += e.rocksDug;
     this.cumulative.totalAttacks += e.attacks;
     this.cumulative.totalDeathsByCombat += e.deathsByCombat;
 
@@ -98,7 +101,7 @@ export class StatisticsSystem implements System {
       sumSpeed += a.phenotype.maxSpeed;
       sumSize += a.phenotype.radius;
       sumVision += a.phenotype.visionRadius;
-      if (a.carriedItemType >= 0) sumCarrying++;
+      if (a.carriedCount > 0) sumCarrying++;
     }
 
     const sample: StatsSample = {

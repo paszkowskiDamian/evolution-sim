@@ -1,9 +1,9 @@
 /**
- * Typ przedmiotu w EKWIPUNKU agenta (Agent.carriedItemType) — nie w tym
+ * Typ przedmiotu w EKWIPUNKU agenta (Agent.carriedItems) — nie w tym
  * polu. Kamienie fizycznie żyją w `ItemField` (ta klasa), jedzenie
  * w `FoodField` — to dwa osobne pola, bo mają zupełnie inną semantykę
  * (kamień jest bryłą, jedzenie samo znika przy dotyku). Wspólny jest
- * wyłącznie jednosłotowy ekwipunek: CarrySystem umie podnieść i odłożyć
+ * wyłącznie wielosłotowy ekwipunek: CarrySystem umie podnieść i odłożyć
  * OBA typy tym samym mechanizmem, więc obie stałe żyją razem tutaj.
  */
 export const ROCK_TYPE = 0;

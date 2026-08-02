@@ -7,6 +7,11 @@ function hueCss(hue: number): string {
   return '#' + rgb.toString(16).padStart(6, '0');
 }
 
+/** 0 = kamień, 1 = jedzenie (patrz core/world/items.ts ROCK_TYPE/FOOD_TYPE). */
+function itemLabel(type: number): string {
+  return type === 0 ? 'kamień' : 'jedzenie';
+}
+
 /** Pasek wartości z zakresu -1..1 (aktywacje) albo 0..1 (energia). */
 function Bar({ value, signed = true }: { value: number; signed?: boolean }) {
   const v = Math.max(-1, Math.min(1, value));
@@ -68,8 +73,15 @@ export function AgentPanel({ agent, onFollow, onClear }: Props) {
           </span>
         </div>
         <div className="stat">
-          <span className="stat-label">niesie</span>
-          <span className="stat-value">{agent.carrying ? 'kamień' : '—'}</span>
+          <span className="stat-label">ekwipunek</span>
+          <span className="stat-value">
+            {agent.carriedItems.length}/{agent.maxCarryItems}
+            {agent.carriedItems.length > 0 && ` (${agent.carriedItems.map(itemLabel).join(', ')})`}
+          </span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">schronienie</span>
+          <span className="stat-value">{agent.inShelter ? 'w jaskini' : '—'}</span>
         </div>
         <div className="stat">
           <span className="stat-label">płeć</span>

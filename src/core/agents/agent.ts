@@ -32,9 +32,14 @@ export class Agent {
   /** Ticki pozostałe do możliwości ponownego ataku. */
   attackCooldown = 0;
 
-  // --- przedmioty (jednosłotowy ekwipunek) ---
-  /** -1 = nic nie niesie; w przeciwnym razie typ przedmiotu (patrz world/items.ts). */
-  carriedItemType = -1;
+  // --- przedmioty (wielosłotowy ekwipunek, patrz config.maxCarryItems) ---
+  /**
+   * Sloty [0, carriedCount) niosą typ przedmiotu (patrz world/items.ts),
+   * reszta to -1 (puste). Podnoszenie dopisuje na koniec, upuszczanie
+   * zdejmuje z końca (LIFO) — ostatnio podniesiony wychodzi pierwszy.
+   */
+  readonly carriedItems: Int8Array;
+  carriedCount = 0;
   /** Ticki pozostałe do możliwości ponownego chwytu/upuszczenia. */
   carryCooldown = 0;
 
@@ -85,6 +90,7 @@ export class Agent {
     this.brain = new NeuralNetwork(genome, config, shape);
     this.hiddenState = new Float32Array(this.brain.recurrentWidth);
     this.phenotype = decodePhenotype(genome, config);
+    this.carriedItems = new Int8Array(config.maxCarryItems).fill(-1);
     this.x = opts.x;
     this.y = opts.y;
     this.heading = opts.heading;

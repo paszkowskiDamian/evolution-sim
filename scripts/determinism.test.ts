@@ -44,7 +44,8 @@ function hashWorld(sim: Simulation): string {
     mix(a.health);
     mix(a.heading);
     mix(a.generation);
-    mix(a.carriedItemType);
+    mix(a.carriedCount);
+    for (let i = 0; i < a.carriedCount; i++) mix(a.carriedItems[i]);
     mix(a.fatherId);
     mix(a.phenotype.gender);
     if (a.hiddenState.length > 0) mix(a.hiddenState[0]);

@@ -164,20 +164,53 @@ export function useSimulation() {
     const host = hostRef.current;
     if (!host || !ready) return;
 
+    // Śledzimy WSZYSTKIE aktywne wskaźniki (Map), żeby wykryć drugi palec
+    // i przełączyć się z przeciągania na pinch-zoom — Pointer Events ujednolica
+    // mysz/dotyk/pióro, ale rozróżnienie "1 palec = pan" / "2 palce = zoom"
+    // trzeba zbudować samemu, bo `wheel` (dotychczasowy jedyny zoom) w ogóle
+    // nie istnieje na dotyku.
+    const pointers = new Map<number, { x: number; y: number }>();
     let dragging = false;
     let moved = 0;
     let lastX = 0;
     let lastY = 0;
+    let pinchDist = 0;
 
     const onPointerDown = (e: PointerEvent) => {
-      dragging = true;
-      moved = 0;
-      lastX = e.clientX;
-      lastY = e.clientY;
       host.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size === 1) {
+        dragging = true;
+        moved = 0;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      } else if (pointers.size === 2) {
+        // Drugi palec dotknął ekranu — koniec przeciągania, start pinch-zoomu.
+        dragging = false;
+        const [p1, p2] = Array.from(pointers.values());
+        pinchDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      }
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size >= 2) {
+        const [p1, p2] = Array.from(pointers.values());
+        const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        const renderer = rendererRef.current;
+        if (renderer && pinchDist > 0 && dist > 0) {
+          const rect = host.getBoundingClientRect();
+          const midX = (p1.x + p2.x) / 2 - rect.left;
+          const midY = (p1.y + p2.y) / 2 - rect.top;
+          renderer.camera.zoomAt(midX, midY, dist / pinchDist);
+        }
+        pinchDist = dist;
+        return;
+      }
+
       if (!dragging) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -188,10 +221,27 @@ export function useSimulation() {
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      const wasTracked = pointers.has(e.pointerId);
+      pointers.delete(e.pointerId);
+      host.releasePointerCapture(e.pointerId);
+      if (!wasTracked) return;
+
+      if (pointers.size === 1) {
+        // Wracamy z pinch-zoomu do jednego palca — wznów przeciąganie od
+        // JEGO bieżącej pozycji (bez skoku kamery) i nie traktuj tego
+        // podniesienia jak kliknięcia.
+        const [remaining] = Array.from(pointers.values());
+        dragging = true;
+        moved = Infinity;
+        lastX = remaining.x;
+        lastY = remaining.y;
+        return;
+      }
+      if (pointers.size > 0) return;
+
       if (!dragging) return;
       dragging = false;
-      host.releasePointerCapture(e.pointerId);
-      if (moved > 4) return; // to było przeciąganie, nie kliknięcie
+      if (moved > 4) return; // to było przeciąganie (albo pinch), nie kliknięcie
       const renderer = rendererRef.current;
       const sim = simRef.current;
       if (!renderer || !sim) return;
