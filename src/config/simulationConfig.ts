@@ -97,6 +97,15 @@ export interface SimulationConfig {
   /** Bierna regeneracja zdrowia na tick (nie kosztuje energii). */
   healthRegenRate: number;
 
+  // --- sygnalizacja ---
+  /**
+   * Koszt energii ZA TICK, proporcjonalny do głośności wyjścia "sygnał"
+   * (0 przy ciszy, pełny koszt przy głośności 1). Bez tego kosztu ewolucja
+   * zawsze wybrałaby "krzycz na maksa bez przerwy" — kanał sygnałowy
+   * niosłby zero informacji, bo każdy nadawałby stale to samo.
+   */
+  signalEnergyCost: number;
+
   // --- energia ---
   maxEnergy: number;
   startEnergy: number;
@@ -183,12 +192,15 @@ export const defaultConfig: SimulationConfig = {
   // Jeśli symulacja w niego uderza, to znaczy, że świat jest za bogaty
   // i selekcja przestała działać — wtedy zmniejsz `foodSpawnRate`.
   maxPopulation: 2500,
-  // Rozmnażanie płciowe wymaga, żeby DWOJE konkretnych, gotowych osobników
-  // znalazło się blisko siebie naraz — przy dawnym progu (12) na mapie
-  // 3000x3000 to statystycznie prawie nigdy się nie zdarza. Próg musi
-  // być na tyle wysoki, żeby awaryjne dosiewanie w ogóle dawało realną
-  // szansę na spotkanie partnera.
-  minPopulation: 80,
+  // WYŁĄCZONE domyślnie (patrz PopulationGuardSystem: `minPopulation <= 0`
+  // = system nieaktywny). Dosiewanie klonów ostatnich ocalałych, gdy
+  // populacja jest niewielka ale wciąż żywa, wygląda jak "jeden agent
+  // płodzi kolejnego samego siebie" — poprawne dla ZAPOBIEGANIA wymarciu,
+  // ale mylące jako domyślne zachowanie. Całkowite wymarcie jest teraz
+  // dozwolonym wynikiem eksperymentu, nie czymś, czemu silnik zapobiega
+  // po cichu. Włącz z powrotem (np. 60-80) suwakiem w UI, jeśli zależy Ci
+  // na twardej gwarancji przetrwania świata.
+  minPopulation: 0,
 
   // Przyrost jedzenia wyznacza pojemność środowiska. Zamierzenie skąpe —
   // presja na znalezienie i UTRZYMANIE dostępu do jedzenia (a nie tylko
@@ -257,6 +269,12 @@ export const defaultConfig: SimulationConfig = {
   attackCooldownTicks: 40,
   baseMaxHealth: 100,
   healthRegenRate: 0.05,
+
+  // 0.03 przy pełnej głośności to ok. 25% baseMetabolism (0.12) — odczuwalne
+  // przy ciągłym nadawaniu (jak reszta kosztów w tym pliku), ale krótkie
+  // "okrzyki" zostają praktycznie darmowe. Bez tego ewolucja nie miałaby
+  // żadnego powodu, żeby kiedykolwiek zamilknąć.
+  signalEnergyCost: 0.03,
 
   maxEnergy: 100,
   startEnergy: 60,

@@ -41,6 +41,19 @@ export class TerrainGrid {
   private readonly shelterStack: Int32Array;
   private readonly shelterComponent: Int32Array;
 
+  // --- schronienie: analiza mostów (patrz `findBridges`/`recomputeShelterMap`) ---
+  /** Migawka komórek "dużej" (>= maxCells) surowej składowej — wejście do
+   *  analizy mostów, osobne od `shelterComponent`, bo ta jest reużywana
+   *  jako zwykły skrach WEWNĄTRZ tej analizy. */
+  private readonly bigComponentCells: Int32Array;
+  private readonly bridgeDisc: Int32Array;
+  private readonly bridgeLow: Int32Array;
+  private readonly dfsStackNode: Int32Array;
+  private readonly dfsStackParent: Int32Array;
+  private readonly dfsStackDir: Int32Array;
+  private readonly blockId: Int32Array;
+  private readonly residualVisited: Uint8Array;
+
   constructor(worldSize: number, cellSize: number) {
     this.worldSize = worldSize;
     this.cellSize = cellSize;
@@ -50,6 +63,14 @@ export class TerrainGrid {
     this.shelterVisited = new Uint8Array(n);
     this.shelterStack = new Int32Array(n);
     this.shelterComponent = new Int32Array(n);
+    this.bigComponentCells = new Int32Array(n);
+    this.bridgeDisc = new Int32Array(n);
+    this.bridgeLow = new Int32Array(n);
+    this.dfsStackNode = new Int32Array(n);
+    this.dfsStackParent = new Int32Array(n);
+    this.dfsStackDir = new Int32Array(n);
+    this.blockId = new Int32Array(n);
+    this.residualVisited = new Uint8Array(n);
   }
 
   private wrapCell(c: number): number {
@@ -329,6 +350,12 @@ export class TerrainGrid {
    * (usunięcie komórki może ROZDZIELIĆ składową na kilka — to wymagałoby
    * pełnego przeszukania i tak), a kopanie/budowanie są rzadkie względem
    * liczby ticków.
+   *
+   * Surowa składowa >= `maxCells` NIE oznacza już automatycznie "brak
+   * schronienia dla WSZYSTKICH jej komórek" — patrz `refineOpenComponent`:
+   * jaskinia połączona ze światem WĄSKIM (1-komórkowym) przejściem zostaje
+   * mimo to osobnym, małym schronieniem; scala się ze światem naprawdę
+   * tylko wtedy, gdy wyłom jest dość szeroki, żeby przestać być "mostem".
    */
   private recomputeShelterMap(maxCells: number): void {
     const n = this.cells.length;
@@ -370,8 +397,207 @@ export class TerrainGrid {
 
       if (compLen < maxCells) {
         for (let i = 0; i < compLen; i++) this.shelterCells[component[i]] = 1;
+      } else {
+        // Zbyt duża, żeby być jednym schronieniem WPROST — ale może to być
+        // prawdziwy otwarty świat, ALBO mała jaskinia zrośnięta z nim przez
+        // wąskie gardło. `component` zostanie zaraz nadpisany przez kolejne
+        // `start` w tej pętli, więc migawka MUSI trafić do osobnego bufora
+        // (`bigComponentCells`), zanim cokolwiek dalej ruszy tę pętlę.
+        this.bigComponentCells.set(component.subarray(0, compLen));
+        this.refineOpenComponent(compLen, maxCells);
       }
     }
+  }
+
+  /**
+   * Rozstrzyga surową składową >= `maxCells` (patrz `recomputeShelterMap`)
+   * na "prawdziwy otwarty świat" kontra "małe kieszonki zrośnięte z nim
+   * przez wąskie gardła" — i oznacza te drugie jako schronienie.
+   *
+   * Kluczowe rozróżnienie: MOST (patrz `findBridges`) — krawędź grafu,
+   * której usunięcie rozspójnia graf. Korytarz szerokości 1 (właz wykopany
+   * w ścianie) to zawsze most: usuń go, a jaskinia i świat znów są
+   * rozłączne, dokładnie jak PRZED wykopaniem. Wyłom szerokości >= 2 tworzy
+   * pętlę (dwie niezależne drogi między tymi samymi punktami) — taka
+   * krawędź NIE jest mostem, bo usunięcie jednej z dwóch dróg nic nie
+   * rozłącza. To jest formalny odpowiednik "prawdziwej dziury w ścianie"
+   * kontra "wąskich drzwi", bez zgadywania progu szerokości na sztywno.
+   *
+   * Algorytm w trzech przejściach po tej samej surowej składowej:
+   *  1. `findBridges` — most-krawędzie (Tarjan, iteracyjnie — składowa może
+   *     mieć tysiące komórek, rekurencja rozsadziłaby stos JS).
+   *  2. Flood-fill BEZ przekraczania mostów -> "bloki" (maksymalne spójne
+   *     kawałki bez żadnego mostu w środku). Największy blok to niemal
+   *     na pewno prawdziwy, nieograniczony świat zewnętrzny — otwarta
+   *     przestrzeń ma z natury nadmiarowe ścieżki (pętle) wszędzie, więc
+   *     jej blok rośnie do tysięcy komórek, podczas gdy korytarz
+   *     szerokości 1 jest CAŁY zbudowany z samych mostów i rozpada się na
+   *     mnóstwo małych bloków (to oczekiwane — nie są tu jeszcze oceniane).
+   *  3. Wyklucz komórki największego bloku (traktuj jak litą skałę) i
+   *     przeprowadź ZWYKŁY flood-fill (PEŁNA łączność, mosty już nieważne)
+   *     po reszcie. To odtwarza jaskinię jako spójną całość (korytarz +
+   *     komnaty), bo jedyne, co ją realnie łączyło ze światem, to właśnie
+   *     wykluczone komórki największego bloku. Wynikowe kawałki < maxCells
+   *     dostają status schronienia — dokładnie ta sama reguła co dla
+   *     surowych małych składowych w `recomputeShelterMap`.
+   */
+  private refineOpenComponent(cellCount: number, maxCells: number): void {
+    const cells = this.bigComponentCells;
+    const bridges = this.findBridges(cells, cellCount);
+
+    // --- 2: bloki bez mostów, wewnątrz nich szukamy tego największego ---
+    const blockId = this.blockId;
+    for (let i = 0; i < cellCount; i++) blockId[cells[i]] = -1;
+    const stack = this.dfsStackNode; // Tarjan skończony — bezpieczne do reużycia jako zwykły stos.
+    let nextBlockId = 0;
+    let giantBlockId = -1;
+    let giantSize = 0;
+    const n = this.cells.length;
+
+    for (let s = 0; s < cellCount; s++) {
+      const start = cells[s];
+      if (blockId[start] !== -1) continue;
+      const id = nextBlockId++;
+      let size = 0;
+      let sp = 0;
+      stack[sp++] = start;
+      blockId[start] = id;
+      while (sp > 0) {
+        const u = stack[--sp];
+        size++;
+        const cy = Math.floor(u / this.cols);
+        const cx = u % this.cols;
+        const neighbors = [
+          this.index(cx + 1, cy),
+          this.index(cx - 1, cy),
+          this.index(cx, cy + 1),
+          this.index(cx, cy - 1),
+        ];
+        for (const v of neighbors) {
+          if (this.cells[v] === TILE_ROCK || blockId[v] !== -1) continue;
+          const key = u < v ? u * n + v : v * n + u;
+          if (bridges.has(key)) continue; // most = nie liczy się do TEGO bloku
+          blockId[v] = id;
+          stack[sp++] = v;
+        }
+      }
+      if (size > giantSize) {
+        giantSize = size;
+        giantBlockId = id;
+      }
+    }
+
+    // --- 3: reszta (bez komórek olbrzymiego bloku), PEŁNA łączność ---
+    const visited = this.residualVisited;
+    for (let i = 0; i < cellCount; i++) visited[cells[i]] = 0;
+    const component = this.shelterComponent; // migawka już bezpiecznie w bigComponentCells — wolno nadpisać.
+
+    for (let s = 0; s < cellCount; s++) {
+      const start = cells[s];
+      if (blockId[start] === giantBlockId || visited[start]) continue;
+
+      let compLen = 0;
+      let sp = 0;
+      stack[sp++] = start;
+      visited[start] = 1;
+
+      while (sp > 0) {
+        const u = stack[--sp];
+        component[compLen++] = u;
+        const cy = Math.floor(u / this.cols);
+        const cx = u % this.cols;
+        const neighbors = [
+          this.index(cx + 1, cy),
+          this.index(cx - 1, cy),
+          this.index(cx, cy + 1),
+          this.index(cx, cy - 1),
+        ];
+        for (const v of neighbors) {
+          if (this.cells[v] === TILE_ROCK || visited[v] || blockId[v] === giantBlockId) continue;
+          visited[v] = 1;
+          stack[sp++] = v;
+        }
+      }
+
+      if (compLen < maxCells) {
+        for (let i = 0; i < compLen; i++) this.shelterCells![component[i]] = 1;
+      }
+    }
+  }
+
+  /**
+   * Mosty (krawędzie, których usunięcie rozspójnia graf) w podgrafie
+   * złożonym z `cells[0..cellCount)` — WSZYSTKIE muszą należeć do jednej
+   * spójnej surowej składowej (patrz `recomputeShelterMap`). Iteracyjny
+   * Tarjan: standardowy `disc`/`low`, ale z jawnym stosem zamiast
+   * rekurencji, bo składowa bywa tysięcy komórek głęboka (jeden długi
+   * korytarz) — rekurencja JS by się na tym wywróciła.
+   *
+   * Krawędź kodowana jako `min(u,v) * n + max(u,v)` (para indeksów
+   * liniowych komórek) — bezpieczne aż do n rzędu miliona (n² mieści się
+   * w bezpiecznym zakresie liczb JS), a siatka terenu nigdy nie jest tak
+   * wielka w praktyce.
+   */
+  private findBridges(cells: Int32Array, cellCount: number): Set<number> {
+    const n = this.cells.length;
+    const disc = this.bridgeDisc;
+    const low = this.bridgeLow;
+    for (let i = 0; i < cellCount; i++) disc[cells[i]] = -1;
+
+    const bridges = new Set<number>();
+    let counter = 0;
+    const stackNode = this.dfsStackNode;
+    const stackParent = this.dfsStackParent;
+    const stackDir = this.dfsStackDir;
+
+    for (let s = 0; s < cellCount; s++) {
+      const root = cells[s];
+      if (disc[root] !== -1) continue;
+
+      let top = 0;
+      disc[root] = low[root] = counter++;
+      stackNode[0] = root;
+      stackParent[0] = -1;
+      stackDir[0] = 0;
+
+      while (top >= 0) {
+        const u = stackNode[top];
+        if (stackDir[top] < 4) {
+          const dir = stackDir[top]++;
+          const cy = Math.floor(u / this.cols);
+          const cx = u % this.cols;
+          const v =
+            dir === 0
+              ? this.index(cx + 1, cy)
+              : dir === 1
+                ? this.index(cx - 1, cy)
+                : dir === 2
+                  ? this.index(cx, cy + 1)
+                  : this.index(cx, cy - 1);
+          if (this.cells[v] === TILE_ROCK) continue;
+          if (v === stackParent[top]) continue; // nie wracaj tą samą krawędzią do rodzica
+          if (disc[v] === -1) {
+            disc[v] = low[v] = counter++;
+            top++;
+            stackNode[top] = v;
+            stackParent[top] = u;
+            stackDir[top] = 0;
+          } else if (disc[v] < low[u]) {
+            low[u] = disc[v]; // krawędź powrotna — liczy się disc, nie low
+          }
+        } else {
+          top--;
+          if (top >= 0) {
+            const parent = stackNode[top];
+            if (low[u] < low[parent]) low[parent] = low[u];
+            if (low[u] > disc[parent]) {
+              bridges.add(parent < u ? parent * n + u : u * n + parent);
+            }
+          }
+        }
+      }
+    }
+    return bridges;
   }
 
   // ------------------------------------------------------------ linia wzroku

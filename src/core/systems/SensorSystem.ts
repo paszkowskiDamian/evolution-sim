@@ -2,7 +2,7 @@ import type { System } from './System';
 import type { World } from '../world/world';
 import { normalizeAngle, clamp } from '../utils/math';
 import { FOOD_TYPE } from '../world/items';
-import { VisibilityCandidates } from '../utils/visibility';
+import { VisibilityCandidates, SignalCandidates } from '../utils/visibility';
 
 /**
  * Zbiera wejścia sieci neuronowej każdego agenta.
@@ -28,6 +28,7 @@ export class SensorSystem implements System {
   private readonly agentCandidates = new VisibilityCandidates();
   private readonly mateCandidates = new VisibilityCandidates();
   private readonly itemCandidates = new VisibilityCandidates();
+  private readonly signalCandidates = new SignalCandidates();
 
   update(world: World): void {
     const cfg = world.config;
@@ -67,6 +68,7 @@ export class SensorSystem implements System {
       // tego na osobne zapytania mnożyło koszt najdroższego systemu w ticku.
       this.agentCandidates.reset();
       this.mateCandidates.reset();
+      this.signalCandidates.reset();
       let neighbours = 0;
       const densityRadius2 = (vision * 0.5) * (vision * 0.5);
       const myGender = a.phenotype.gender;
@@ -80,6 +82,18 @@ export class SensorSystem implements System {
         const other = world.agentById.get(id);
         if (other && other.phenotype.gender !== myGender) {
           this.mateCandidates.add(id, dx, dy, d2);
+        }
+        if (other) {
+          // Głośność odbierana = wyjście "sygnał" nadawcy (tylko dodatnia
+          // część liczy się jako nadawanie) * bliskość — ten sam kształt co
+          // "bliskość jedzenia" wyżej. Czytamy STAN SPRZED tego ticku
+          // (BrainSystem jeszcze nie policzył nowego forward passu), więc
+          // to zawsze sygnał z t-1, tak jak pamięć rekurencyjna w network.ts.
+          const loudness = Math.max(0, other.brain.outputs[6]);
+          if (loudness > 0) {
+            const score = loudness * (1 - Math.sqrt(d2) / vision);
+            this.signalCandidates.add(id, dx, dy, d2, score);
+          }
         }
       });
 
@@ -185,6 +199,24 @@ export class SensorSystem implements System {
         input[25] = hueDistance(a.phenotype.hue, nearestOther.phenotype.hue) * 4 - 1;
       } else {
         input[25] = 0;
+      }
+
+      // --- najgłośniejszy WIDOCZNY sygnał ---
+      // Ranking po głośności, nie po odległości (patrz SignalCandidates) —
+      // agent słyszy TEGO, kto krzyczy najwyraźniej, niekoniecznie tego,
+      // kto stoi najbliżej. "Głośność" na wyjściu (input[28]) to gotowy
+      // wynik działania SignalCandidates (już 0..1: głośność nadawcy razy
+      // bliskość), więc nie ma tu przeliczania jak przy sensorze jedzenia.
+      const sig = this.signalCandidates.pickLoudestVisible(terrain, a.x, a.y);
+      if (sig) {
+        const bearing = normalizeAngle(Math.atan2(sig.dy, sig.dx) - a.heading);
+        input[26] = Math.sin(bearing);
+        input[27] = Math.cos(bearing);
+        input[28] = sig.score;
+      } else {
+        input[26] = 0;
+        input[27] = 0;
+        input[28] = 0;
       }
     }
   }

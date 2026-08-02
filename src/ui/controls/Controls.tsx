@@ -37,6 +37,9 @@ const TUNABLE: Array<{
 }> = [
   { key: 'seed', label: 'seed', min: 1, max: 99999, step: 1, restart: true },
   { key: 'initialPopulation', label: 'populacja startowa', min: 10, max: 800, step: 10, restart: true },
+  // 0 = wyłączone (PopulationGuardSystem nieaktywny, wymarcie jest możliwym
+  // wynikiem). Na żywo, bez restartu — to zwykły próg czytany co tick.
+  { key: 'minPopulation', label: 'awaryjne dosiewanie od (0 = wyłączone)', min: 0, max: 200, step: 5 },
   { key: 'worldSize', label: 'rozmiar świata', min: 800, max: 8000, step: 100, restart: true },
   { key: 'foodSpawnRate', label: 'przyrost jedzenia / tick', min: 0, max: 60, step: 1 },
   { key: 'foodEnergy', label: 'energia z jedzenia', min: 5, max: 80, step: 1 },
@@ -45,7 +48,13 @@ const TUNABLE: Array<{
   { key: 'baseMetabolism', label: 'metabolizm bazowy', min: 0.005, max: 0.4, step: 0.005 },
   { key: 'maxAge', label: 'maks. wiek', min: 500, max: 20000, step: 100 },
   { key: 'maxHiddenLayers', label: 'maks. warstw ukrytych', min: 1, max: 60, step: 1, restart: true },
-  { key: 'maxLayerWidth', label: 'maks. szerokość warstwy', min: 4, max: 32, step: 1, restart: true },
+  // Szerokość warstwy 0 = POJEMNOŚĆ PAMIĘCI agenta (jest rekurencyjna, patrz
+  // network.ts) — to samo pole ogranicza też szerokość każdej dalszej
+  // warstwy ukrytej. Sufit 96 (nie tylko 32): genom rośnie z maxHiddenLayers
+  // * szerokość², więc przy skrajnych wartościach OBU suwaków naraz genom
+  // (i pamięć na populację) potrafi urosnąć do setek MB — to świadomy
+  // kompromis eksperymentatora, nie awaria.
+  { key: 'maxLayerWidth', label: 'maks. szerokość warstwy (= pamięć agenta)', min: 4, max: 96, step: 1, restart: true },
   { key: 'mountainCount', label: 'liczba gór', min: 0, max: 40, step: 1, restart: true },
   { key: 'terrainCellSize', label: 'rozmiar komórki terenu', min: 10, max: 60, step: 1, restart: true },
   { key: 'rockRadius', label: 'promień luźnego kamienia', min: 1, max: 20, step: 1 },

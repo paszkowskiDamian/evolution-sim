@@ -5,8 +5,8 @@ import { makeReadOnlyBuffer, makeWritableBuffer, readBuffer } from '../../gpu/gp
 import { referenceBrainComplexity } from '../../neural/network';
 
 const WORKGROUP_SIZE = 64;
-// speed, carriedCount, complexity, radius, visionRadius, metabolism, maxHealth, x, y, energy, health, age, reproCooldown
-const IN_STRIDE = 13;
+// speed, carriedCount, complexity, radius, visionRadius, metabolism, maxHealth, x, y, energy, health, age, reproCooldown, signalLoudness
+const IN_STRIDE = 14;
 // energy, health, age, reproCooldown
 const OUT_STRIDE = 4;
 
@@ -59,6 +59,7 @@ export class GpuEnergySystem implements System {
       cfg.worldSize,
       terrain.cellSize,
       refComplexity,
+      cfg.signalEnergyCost,
     ]);
     const metaU32 = new Uint32Array([n, terrain.cols, 0, 0]);
     const metaBytes = new ArrayBuffer(metaF32.byteLength + metaU32.byteLength);
@@ -86,6 +87,8 @@ export class GpuEnergySystem implements System {
       agentIn[base + 10] = a.health;
       agentIn[base + 11] = a.age;
       agentIn[base + 12] = a.reproCooldown;
+      // Tylko dodatnia część liczy się jako nadawanie — patrz EnergySystem (CPU).
+      agentIn[base + 13] = Math.max(0, a.brain.outputs[6]);
     }
 
     const metaBuf = makeReadOnlyBuffer(device, new Uint32Array(metaBytes), 'energy-meta');
@@ -171,8 +174,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let worldSize = bitcast<f32>(metaRaw[10]);
   let cellSize = bitcast<f32>(metaRaw[11]);
   let refComplexity = bitcast<f32>(metaRaw[12]);
-  let agentCount = metaRaw[13];
-  let cols = metaRaw[14];
+  let signalEnergyCost = bitcast<f32>(metaRaw[13]);
+  let agentCount = metaRaw[14];
+  let cols = metaRaw[15];
 
   let i = gid.x;
   if (i >= agentCount) {
@@ -193,6 +197,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   var health = agentIn[base + 10];
   var age = agentIn[base + 11];
   var reproCooldown = agentIn[base + 12];
+  let signalLoudness = agentIn[base + 13];
 
   let cx = u32(floor(wrapf(x, worldSize) / cellSize)) % cols;
   let cy = u32(floor(wrapf(y, worldSize) / cellSize)) % cols;
@@ -204,7 +209,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let carryFactor = 1.0 + (carryMult - 1.0) * carriedCount;
   let metabolismFactor = select(1.0, shelterMetabolismDiscount, sheltered);
 
-  let cost = (baseMetabolism + moveCost * speed * speed + sizeCost * bodyFactor + brainCost * complexityRatio * (0.5 + visionFactor)) * metabolism * carryFactor * metabolismFactor;
+  let cost = (baseMetabolism + moveCost * speed * speed + sizeCost * bodyFactor + brainCost * complexityRatio * (0.5 + visionFactor) + signalEnergyCost * signalLoudness) * metabolism * carryFactor * metabolismFactor;
 
   energy = energy - cost;
   let regenFactor = select(1.0, shelterHealthRegenMultiplier, sheltered);

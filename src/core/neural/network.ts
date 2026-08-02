@@ -48,12 +48,33 @@ export const SENSOR_LABELS = [
   'cos(kąt→ściana)',
   'bliskość ściany',
   'odmienność najbliższego agenta',
+  // --- sygnalizacja (patrz OUTPUT_LABELS "sygnał" + SensorSystem) ---
+  // Agent nie odbiera "znaczenia" — tylko kierunek i głośność najgłośniejszego
+  // WIDOCZNEGO nadawcy w zasięgu wzroku. Co ten kanał zacznie oznaczać
+  // (ostrzeżenie, przywabianie partnera, rekrutacja do jedzenia, a może
+  // fałszywy alarm) jest w całości emergentne — nic w silniku nie narzuca
+  // znaczenia sygnału, tylko jego istnienie.
+  'sin(kąt→sygnał)',
+  'cos(kąt→sygnał)',
+  'głośność sygnału',
 ] as const;
 
-export const OUTPUT_LABELS = ['obrót', 'ruch', 'chęć rozmnażania', 'chwyć/upuść', 'atak', 'jedz'] as const;
+export const OUTPUT_LABELS = [
+  'obrót',
+  'ruch',
+  'chęć rozmnażania',
+  'chwyć/upuść',
+  'atak',
+  'jedz',
+  // Ciągłe (nie progowane) wyjście: dodatnia część = głośność nadawania,
+  // odczytywana przez SensorSystem u innych agentów. NIE jest darmowe —
+  // patrz `signalEnergyCost` w EnergySystem, inaczej ewolucja zawsze
+  // wybrałaby "krzycz na maksa cały czas" i kanał straciłby znaczenie.
+  'sygnał',
+] as const;
 
-export const INPUT_COUNT = SENSOR_LABELS.length; // 26
-export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 6
+export const INPUT_COUNT = SENSOR_LABELS.length; // 29
+export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 7
 
 /** Zdekodowany kształt sieci danego agenta — patrz `decodeBrainShape` w genetics/genome.ts. */
 export interface BrainShape {
