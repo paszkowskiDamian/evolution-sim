@@ -1,5 +1,6 @@
 import type { System } from './System';
 import type { World } from '../world/world';
+import { ageRamp } from '../utils/math';
 
 /**
  * Walka: atak zadaje obrażenia zdrowiu, nigdy energii ani przedmiotom.
@@ -10,6 +11,11 @@ import type { World } from '../world/world';
  * genomie od początku właśnie pod tę mechanikę. To rozdziela "czy" (mózg)
  * od "jak mocno" (ciało), tak jak reszta symulacji rozdziela zachowanie
  * od fizjologii.
+ *
+ * Dodatkowo siła bojowa rośnie z wiekiem: młode osobniki zadają ułamek
+ * pełnych obrażeń, dochodząc do 100% dopiero po `combatMaturationTicks` —
+ * dłuższy narost niż przy prędkości (`speedMaturationTicks`), więc młody
+ * osobnik jest niebezpieczny w ruchu szybciej, niż jest niebezpieczny w walce.
  *
  * Cel to najbliższy inny agent w zasięgu — wybór deterministyczny, bez
  * losowości. Nieudana próba (nikogo w zasięgu) nic nie kosztuje i nie
@@ -44,7 +50,8 @@ export class AttackSystem implements System {
       const target = world.agentById.get(targetId);
       if (!target || !target.alive) continue;
 
-      const damage = cfg.attackDamageBase * (0.4 + a.phenotype.aggression);
+      const maturity = ageRamp(a.age, cfg.combatMaturationTicks, cfg.juvenileCombatFactor);
+      const damage = cfg.attackDamageBase * (0.4 + a.phenotype.aggression) * maturity;
       target.health = Math.max(0, target.health - damage);
       a.energy -= cfg.attackEnergyCost;
       a.attackCooldown = cfg.attackCooldownTicks;

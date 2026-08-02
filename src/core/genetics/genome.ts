@@ -25,9 +25,15 @@ export const BIO_GENES = {
   vision: 4, // zasięg widzenia
   hue: 5, // barwa (czysto fenotypowa, ale dziedziczna — widać linie rodowe)
   aggression: 6, // siła ataku — patrz AttackSystem
+  gender: 7, // płeć — patrz FEMALE/MALE i ReproductionSystem
 } as const;
 
-export const BIO_GENE_COUNT = 7;
+export const BIO_GENE_COUNT = 8;
+
+/** Płeć — binarna, dekodowana progiem na genie ciągłym jak każda inna cecha. */
+export const FEMALE = 0;
+export const MALE = 1;
+export type Gender = typeof FEMALE | typeof MALE;
 
 export interface Phenotype {
   radius: number;
@@ -38,6 +44,7 @@ export interface Phenotype {
   hue: number;
   aggression: number;
   maxHealth: number;
+  gender: Gender;
 }
 
 /** Liczba genów strukturalnych: 1 (liczba warstw) + 1 na każdy dopuszczalny slot warstwy. */
@@ -188,6 +195,7 @@ export function decodePhenotype(genome: Float32Array, config: SimulationConfig):
     // Większe ciało = więcej wytrzymałości w walce — nie ma osobnego genu,
     // korzystamy wprost z już zdekodowanego promienia.
     maxHealth: config.baseMaxHealth * (0.5 + 0.5 * sizeFrac),
+    gender: genome[o + BIO_GENES.gender] >= 0 ? MALE : FEMALE,
   };
 }
 

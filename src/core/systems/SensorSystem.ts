@@ -19,6 +19,7 @@ export class SensorSystem implements System {
   private readonly nearestFood = makeNearestResult();
   private readonly nearestAgent = makeNearestResult();
   private readonly nearestItem = makeNearestResult();
+  private readonly nearestMate = makeNearestResult();
 
   update(world: World): void {
     const cfg = world.config;
@@ -48,14 +49,18 @@ export class SensorSystem implements System {
         input[6] = 0;
       }
 
-      // --- najbliższy inny agent + zagęszczenie ---
-      // Jedno przejście po siatce liczy oba sensory naraz. Rozbicie tego
-      // na dwa zapytania podwajało koszt najdroższego systemu w ticku.
+      // --- najbliższy inny agent + zagęszczenie + najbliższy partner ---
+      // Jedno przejście po siatce liczy wszystkie trzy naraz. Rozbicie tego
+      // na osobne zapytania mnożyło koszt najdroższego systemu w ticku.
       const n = this.nearestAgent;
       n.found = false;
       n.dist2 = Infinity;
+      const mate = this.nearestMate;
+      mate.found = false;
+      mate.dist2 = Infinity;
       let neighbours = 0;
       const densityRadius2 = (vision * 0.5) * (vision * 0.5);
+      const myGender = a.phenotype.gender;
       world.agentGrid.forEachInRadius(a.x, a.y, vision, (id, dx, dy, d2) => {
         if (id === a.id) return;
         if (d2 < n.dist2) {
@@ -66,6 +71,20 @@ export class SensorSystem implements System {
           n.found = true;
         }
         if (d2 <= densityRadius2) neighbours++;
+        // Partner = najbliższy agent PRZECIWNEJ płci — osobne zapytanie
+        // (a nie ten sam co "najbliższy agent") bo najbliższy agent bywa
+        // rywalem tej samej płci, bezużytecznym jako cel nawigacji do
+        // rozmnażania.
+        if (d2 < mate.dist2) {
+          const other = world.agentById.get(id);
+          if (other && other.phenotype.gender !== myGender) {
+            mate.dist2 = d2;
+            mate.dx = dx;
+            mate.dy = dy;
+            mate.id = id;
+            mate.found = true;
+          }
+        }
         return;
       });
 
@@ -106,6 +125,22 @@ export class SensorSystem implements System {
 
       // --- własne zdrowie ---
       input[16] = (a.health / a.phenotype.maxHealth) * 2 - 1;
+
+      // --- własna płeć ---
+      input[17] = myGender === 1 ? 1 : -1;
+
+      // --- najbliższy partner (przeciwna płeć) ---
+      if (mate.found) {
+        const dist = Math.sqrt(mate.dist2);
+        const bearing = normalizeAngle(Math.atan2(mate.dy, mate.dx) - a.heading);
+        input[18] = Math.sin(bearing);
+        input[19] = Math.cos(bearing);
+        input[20] = 1 - dist / vision;
+      } else {
+        input[18] = 0;
+        input[19] = 0;
+        input[20] = 0;
+      }
     }
   }
 }

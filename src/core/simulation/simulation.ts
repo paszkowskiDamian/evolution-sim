@@ -134,6 +134,8 @@ export class Simulation {
       age: a.age,
       generation: a.generation,
       motherId: a.motherId,
+      fatherId: a.fatherId,
+      gender: a.phenotype.gender,
       childrenCount: a.childrenCount,
       foodEaten: a.foodEaten,
       fitness: a.fitness,

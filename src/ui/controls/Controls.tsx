@@ -38,6 +38,9 @@ const TUNABLE: Array<{
   { key: 'carryMetabolismMultiplier', label: 'koszt niesienia', min: 1, max: 2, step: 0.05 },
   { key: 'attackRange', label: 'zasięg ataku', min: 1, max: 40, step: 1 },
   { key: 'attackDamageBase', label: 'obrażenia ataku', min: 0, max: 60, step: 1 },
+  { key: 'matingRange', label: 'zasięg szukania partnera', min: 1, max: 100, step: 1 },
+  { key: 'speedMaturationTicks', label: 'dojrzewanie prędkości (ticki)', min: 0, max: 3000, step: 50 },
+  { key: 'combatMaturationTicks', label: 'dojrzewanie bojowe (ticki)', min: 0, max: 3000, step: 50 },
 ];
 
 const SPEEDS = [1, 2, 5, 10, 25, 100];

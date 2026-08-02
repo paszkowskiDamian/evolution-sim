@@ -47,6 +47,8 @@ export interface AgentView {
   age: number;
   generation: number;
   motherId: number;
+  fatherId: number;
+  gender: number;
   childrenCount: number;
   foodEaten: number;
   fitness: number;

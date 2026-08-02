@@ -37,8 +37,9 @@ export interface LineageRecord {
 }
 
 export interface BirthRequest {
-  parent: Agent;
-  /** Energia przekazana potomkowi (już odjęta rodzicowi). */
+  mother: Agent;
+  father: Agent;
+  /** Energia przekazana potomkowi (już odjęta obojgu rodzicom). */
   energy: number;
 }
 

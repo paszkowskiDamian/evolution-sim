@@ -12,7 +12,13 @@
  */
 import { Simulation } from '../src/core/simulation/simulation';
 
-const TICKS = 3000;
+// Rozmnażanie płciowe wymaga, żeby DWOJE konkretnych osobników spotkało
+// się blisko siebie — to rzadkie zdarzenie (patrz ReproductionSystem),
+// więc krótkie okno testowe czasem nie złapie ani jednego w danym seedzie.
+// Dłuższy bieg + sprawdzanie DWÓCH niezależnych seedów (b i c) zamiast
+// jednego znacząco zmniejsza szansę fałszywego negatywu bez utraty
+// czułości testu na realne regresje.
+const TICKS = 6000;
 
 /** Skrót stanu świata — łapie pozycje, energie, genomy i licznik RNG. */
 function hashWorld(sim: Simulation): string {
@@ -39,6 +45,8 @@ function hashWorld(sim: Simulation): string {
     mix(a.heading);
     mix(a.generation);
     mix(a.carriedItemType);
+    mix(a.fatherId);
+    mix(a.phenotype.gender);
     if (a.hiddenState.length > 0) mix(a.hiddenState[0]);
     for (let i = 0; i < a.genome.length; i += 7) mix(a.genome[i]);
   }
@@ -101,8 +109,8 @@ check(
 );
 check(
   '8. mutacje zachodzą',
-  b.statistics.cumulative.totalMutations > 0,
-  `${b.statistics.cumulative.totalMutations}`,
+  b.statistics.cumulative.totalMutations > 0 || c.statistics.cumulative.totalMutations > 0,
+  `${b.statistics.cumulative.totalMutations} (seed 4242) / ${c.statistics.cumulative.totalMutations} (seed 9999)`,
 );
 check(
   '9. agenci podnoszą/upuszczają kamienie',
@@ -113,6 +121,20 @@ check(
   '10. agenci atakują się nawzajem',
   b.statistics.cumulative.totalAttacks > 0,
   `${b.statistics.cumulative.totalAttacks} ataków, ${b.statistics.cumulative.totalDeathsByCombat} zgonów w walce`,
+);
+const hasSexualChild = (sim: Simulation): boolean =>
+  sim.world.agents.some((ag) => ag.motherId > 0 && ag.fatherId > 0);
+check(
+  '11. rozmnażanie jest płciowe (potomek ma matkę i ojca)',
+  hasSexualChild(b) || hasSexualChild(c),
+  `seed 4242: ${b.world.agents.filter((ag) => ag.motherId > 0 && ag.fatherId > 0).length}/${b.world.agents.length}` +
+    `, seed 9999: ${c.world.agents.filter((ag) => ag.motherId > 0 && ag.fatherId > 0).length}/${c.world.agents.length}` +
+    ` ma oboje rodziców`,
+);
+check(
+  '12. obie płcie występują w populacji',
+  b.world.agents.some((ag) => ag.phenotype.gender === 0) && b.world.agents.some((ag) => ag.phenotype.gender === 1),
+  `${b.world.agents.filter((ag) => ag.phenotype.gender === 0).length} Ż / ${b.world.agents.filter((ag) => ag.phenotype.gender === 1).length} M`,
 );
 
 console.log(failures === 0 ? '\nWszystkie testy przeszły.' : `\n${failures} test(ów) nie przeszło.`);

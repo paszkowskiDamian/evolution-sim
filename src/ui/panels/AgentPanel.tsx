@@ -72,6 +72,10 @@ export function AgentPanel({ agent, onFollow, onClear }: Props) {
           <span className="stat-value">{agent.carrying ? 'kamień' : '—'}</span>
         </div>
         <div className="stat">
+          <span className="stat-label">płeć</span>
+          <span className="stat-value">{agent.gender === 1 ? '♂' : '♀'}</span>
+        </div>
+        <div className="stat">
           <span className="stat-label">wiek</span>
           <span className="stat-value">{agent.age}</span>
         </div>
@@ -82,6 +86,10 @@ export function AgentPanel({ agent, onFollow, onClear }: Props) {
         <div className="stat">
           <span className="stat-label">matka</span>
           <span className="stat-value">{agent.motherId > 0 ? `#${agent.motherId}` : '—'}</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">ojciec</span>
+          <span className="stat-value">{agent.fatherId > 0 ? `#${agent.fatherId}` : '—'}</span>
         </div>
         <div className="stat">
           <span className="stat-label">dzieci</span>

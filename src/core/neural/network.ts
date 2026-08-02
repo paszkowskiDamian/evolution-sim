@@ -39,6 +39,10 @@ export const SENSOR_LABELS = [
   'cos(kąt→kamień)',
   'bliskość kamienia',
   'zdrowie',
+  'płeć',
+  'sin(kąt→partner)',
+  'cos(kąt→partner)',
+  'bliskość partnera',
 ] as const;
 
 export const OUTPUT_LABELS = ['obrót', 'ruch', 'chęć rozmnażania', 'chwyć/upuść', 'atak'] as const;

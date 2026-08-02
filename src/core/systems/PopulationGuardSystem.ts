@@ -2,6 +2,7 @@ import type { System } from './System';
 import type { World } from '../world/world';
 import { Agent } from '../agents/agent';
 import { mutate, makeMutationReport } from '../genetics/mutation';
+import { bioGeneOffset, BIO_GENES, FEMALE } from '../genetics/genome';
 import { TAU, wrap } from '../utils/math';
 
 /**
@@ -13,6 +14,14 @@ import { TAU, wrap } from '../utils/math';
  *
  * Gdy jest włączony, dosiewa potomków ocalałych — a nie losowe genomy —
  * żeby nie kasować dorobku ewolucyjnego przy chwilowym załamaniu.
+ *
+ * Płeć wymaga dodatkowej ostrożności: przy bardzo małej populacji dryf
+ * genetyczny łatwo doprowadza do sytuacji, w której WSZYSCY ocaleni są
+ * tej samej płci — a skoro rozmnażanie jest płciowe, sama symulacja
+ * nigdy by się z tego nie wydźwignęła (klonowanie ocalałych nie zmienia
+ * płci). Dlatego ten system, o ile brakuje którejś płci, wymusza ją
+ * u dosiewanego potomka — to wyłącznie odblokowanie normalnej ewolucji,
+ * nie faworyzowanie żadnej strategii.
  */
 export class PopulationGuardSystem implements System {
   readonly name = 'PopulationGuardSystem';
@@ -24,11 +33,24 @@ export class PopulationGuardSystem implements System {
     if (world.agents.length >= cfg.minPopulation) return;
 
     const survivors = world.agents.slice();
+    let femaleCount = 0;
+    let maleCount = 0;
+    for (const s of survivors) {
+      if (s.phenotype.gender === FEMALE) femaleCount++;
+      else maleCount++;
+    }
 
     while (world.agents.length < cfg.minPopulation) {
       if (survivors.length > 0) {
         const parent = survivors[world.rng.int(survivors.length)];
         const genome = mutate(parent.genome, cfg, world.rng, this.report);
+
+        const needsFemale = femaleCount === 0;
+        const needsMale = maleCount === 0;
+        if (needsFemale || needsMale) {
+          genome[bioGeneOffset(cfg) + BIO_GENES.gender] = needsFemale ? -1 : 1;
+        }
+
         // Tuż obok rodzica, tak jak zwykłe rozmnażanie w MutationSystem —
         // bez tego potomek "teleportował się" w losowe miejsce na mapie,
         // mimo że ma prawdziwego rodzica tuż obok.
@@ -44,6 +66,8 @@ export class PopulationGuardSystem implements System {
           bornAtTick: world.tick,
         });
         world.addAgent(child);
+        if (child.phenotype.gender === FEMALE) femaleCount++;
+        else maleCount++;
       } else {
         world.spawnRandomAgent();
       }

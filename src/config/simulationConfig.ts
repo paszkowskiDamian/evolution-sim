@@ -75,11 +75,21 @@ export interface SimulationConfig {
   /** Wiek, od którego rośnie ryzyko śmierci ze starości. */
   senescenceStart: number;
 
-  // --- rozmnażanie ---
+  // --- rozmnażanie (płciowe) ---
   reproductionEnergyThreshold: number; // ułamek maxEnergy
-  reproductionCost: number; // ułamek energii rodzica przekazany + stracony
+  reproductionCost: number; // ułamek energii KAŻDEGO z rodziców, przekazany + stracony
   reproductionCooldown: number; // ticki
   maturityAge: number;
+  /** Zasięg szukania partnera przeciwnej płci, względem promienia ciała. */
+  matingRange: number;
+
+  // --- dojrzewanie fizjologiczne ---
+  /** Ułamek maxSpeed dostępny przy wieku 0; narasta do 1.0 w `speedMaturationTicks`. */
+  juvenileSpeedFactor: number;
+  speedMaturationTicks: number;
+  /** Ułamek pełnych obrażeń ataku przy wieku 0; narasta do 1.0 w `combatMaturationTicks`. */
+  juvenileCombatFactor: number;
+  combatMaturationTicks: number;
 
   // --- mutacje ---
   mutationChance: number; // prawdopodobieństwo mutacji na gen
@@ -118,14 +128,18 @@ export const defaultConfig: SimulationConfig = {
   // Jeśli symulacja w niego uderza, to znaczy, że świat jest za bogaty
   // i selekcja przestała działać — wtedy zmniejsz `foodSpawnRate`.
   maxPopulation: 2500,
-  minPopulation: 12,
+  // Rozmnażanie płciowe wymaga, żeby DWOJE konkretnych, gotowych osobników
+  // znalazło się blisko siebie naraz — przy dawnym progu (12) na mapie
+  // 3000x3000 to statystycznie prawie nigdy się nie zdarza. Próg musi
+  // być na tyle wysoki, żeby awaryjne dosiewanie w ogóle dawało realną
+  // szansę na spotkanie partnera.
+  minPopulation: 80,
 
-  // Przyrost jedzenia wyznacza pojemność środowiska. Przy tych kosztach
-  // metabolizmu jeden osobnik potrzebuje ~0.006 jednostki jedzenia na tick,
-  // więc 5/tick utrzymuje rzędu 500–800 osobników — pod warunkiem, że
-  // potrafią je znaleźć. Reszta to już robota doboru naturalnego.
-  foodSpawnRate: 5,
-  maxFood: 1500,
+  // Przyrost jedzenia wyznacza pojemność środowiska. Zamierzenie skąpe —
+  // presja na znalezienie i UTRZYMANIE dostępu do jedzenia (a nie tylko
+  // jego zjedzenie) ma być odczuwalna.
+  foodSpawnRate: 2.5,
+  maxFood: 700,
   foodEnergy: 26,
   foodRadius: 4,
   foodClusterCount: 18,
@@ -160,13 +174,31 @@ export const defaultConfig: SimulationConfig = {
   agentRadiusMin: 3,
   agentRadiusMax: 8,
 
-  maxAge: 6000,
-  senescenceStart: 3000,
+  maxAge: 12000,
+  senescenceStart: 6000,
 
-  reproductionEnergyThreshold: 0.62,
+  // Obniżony względem oryginału (0.62): przy skąpszym jedzeniu (mniej
+  // i wolniej rosnące) średnia energia populacji osiada wyraźnie niżej —
+  // przy starym progu rozmnażanie praktycznie w ogóle nie zachodziło
+  // (zero narodzin w 15000-tickowym biegu testowym), mimo długowiecznej,
+  // stabilnej populacji.
+  reproductionEnergyThreshold: 0.4,
   reproductionCost: 0.45,
   reproductionCooldown: 120,
   maturityAge: 150,
+  // Świat jest duży (worldSize=3000) i populacja przy tych ustawieniach
+  // rzadka — przy wąskim zasięgu (np. 20, porównywalnym z attackRange)
+  // szansa, że DWOJE konkretnych, gotowych osobników trafi na siebie
+  // czysto losowym ruchem, jest bliska zeru (policzone: przy populacji 40
+  // oczekiwana liczba KOGOKOLWIEK w zasięgu 20 to ~0.006). 60 nie czyni
+  // spotkania pewnym, ale daje realną, niezerową szansę, którą ruch
+  // (a nie czysty przypadek) może domknąć.
+  matingRange: 60,
+
+  juvenileSpeedFactor: 0.3,
+  speedMaturationTicks: 400,
+  juvenileCombatFactor: 0.15,
+  combatMaturationTicks: 1000,
 
   mutationChance: 0.03,
   mutationDelta: 0.22,
@@ -177,8 +209,14 @@ export const defaultConfig: SimulationConfig = {
   visionRadius: 260,
   neighborSampleLimit: 12,
 
-  minHiddenLayers: 20,
-  maxHiddenLayers: 50,
+  // Węższy zakres niż poprzednio (20-50): przy takiej głębokości mutacja
+  // punktowa nie zdążała znaleźć działającej sieci szybciej, niż populacja
+  // wymierała do awaryjnego progu — a to blokowało w praktyce WSZYSTKO,
+  // łącznie z rozmnażaniem płciowym (potrzebuje dwojga sprawnych osobników
+  // naraz w jednym miejscu). 4-10 warstw to wciąż wielokrotność pierwotnej
+  // (1-3), ale w przeszukiwalnym zakresie.
+  minHiddenLayers: 4,
+  maxHiddenLayers: 10,
   minLayerWidth: 4,
   maxLayerWidth: 16,
   defaultLayerWidth: 32,
