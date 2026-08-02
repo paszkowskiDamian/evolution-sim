@@ -60,6 +60,20 @@ export interface SimulationConfig {
   mountainCount: number;
   /** Promień litego masywu góry (pełny dysk skały, ZANIM wyrzeźbi się w nim tunele). */
   mountainRadius: number;
+  /**
+   * Obrys masywu (patrz `TerrainGrid.carveOrganicMassif`) — 0 = idealne koło,
+   * rośnie ku 1 -> coraz bardziej postrzępiony, naturalny kształt (przy
+   * wysokich wartościach masyw może rozpaść się na kilka osobnych brył).
+   */
+  mountainNoiseWeight: number;
+  /** Liczba oktaw fraktalnego szumu obrysu — więcej = więcej detalu na różnych skalach, kosztem czasu generacji (wyłącznie przy starcie świata). */
+  mountainNoiseOctaves: number;
+  /** Częstotliwość szumu obrysu (jednostki świata^-1) — mniejsza = szersze, łagodniejsze wybrzuszenia; większa = drobniejszy, bardziej "kudłaty" detal. */
+  mountainNoiseFrequency: number;
+  /** Mnożnik częstotliwości między kolejnymi oktawami szumu (standardowo 2). */
+  mountainNoiseLacunarity: number;
+  /** Mnożnik amplitudy między kolejnymi oktawami szumu (standardowo 0.5). */
+  mountainNoiseGain: number;
   /** Kroków głównego kopacza sieci tuneli wewnątrz masywu (patrz `TerrainGrid.carveTunnelNetwork`). */
   tunnelSteps: number;
   /** Maks. losowy skręt (radiany) na krok — większe = bardziej kręta trasa. */
@@ -255,15 +269,28 @@ export const defaultConfig: SimulationConfig = {
   // osiągalne bez gromadzenia ogromnych zapasów, ale nie z jednego rzutu.
   buildRockThreshold: 3,
 
-  // Góra to LITY dysk skały (promień 150), a nie pusty pierścień — dopiero
-  // wewnątrz niego "błądzenie pijaka" wyrzeźbia rozgałęzioną sieć tuneli
-  // (patrz TerrainGrid.carveTunnelNetwork). Wypełnienie siatki jest
-  // z definicji szczelne — bez szczelin, przez które dałoby się przejść
-  // bez kopania — a granica sieci tuneli ma wbudowany zapas
-  // (tunnelMarginToEdge + promień komnaty), więc tunele nigdy nie
-  // przebijają się na zewnątrz masywu same z siebie.
+  // Góra to LITY masyw skały (nominalny promień 150) o NIEREGULARNYM,
+  // naturalnym obrysie (patrz TerrainGrid.carveOrganicMassif) — nie idealne
+  // koło i nie pusty pierścień. Dopiero WEWNĄTRZ niego "błądzenie pijaka"
+  // wyrzeźbia rozgałęzioną sieć tuneli (patrz TerrainGrid.carveTunnelNetwork).
+  // Wypełnienie siatki jest z definicji szczelne — bez szczelin, przez które
+  // dałoby się przejść bez kopania — a granica sieci tuneli ma wbudowany
+  // zapas (tunnelMarginToEdge + promień komnaty) liczony od NOMINALNEGO
+  // promienia. Przy umiarkowanym mountainNoiseWeight (poniżej) to nadal
+  // praktycznie zawsze wystarcza; przy bardzo wysokich wartościach obrys
+  // bywa lokalnie węższy niż nominalny promień, więc gwarancja "tunel nigdy
+  // nie przebije się na zewnątrz sam z siebie" staje się przybliżona,
+  // nie absolutna.
   mountainCount: 10,
   mountainRadius: 150,
+  mountainNoiseWeight: 0.35,
+  mountainNoiseOctaves: 4,
+  // Okres podstawowej oktawy ~100 jednostek (1/0.01) -> przy promieniu 150
+  // (średnica 300) daje ok. 3 wybrzuszenia na obwodzie masywu — rozpoznawalnie
+  // nieregularny kształt, nie "poszarpane konfetti".
+  mountainNoiseFrequency: 0.01,
+  mountainNoiseLacunarity: 2,
+  mountainNoiseGain: 0.5,
   tunnelSteps: 50,
   tunnelTurnAngle: 0.6,
   tunnelBranchChance: 0.03,

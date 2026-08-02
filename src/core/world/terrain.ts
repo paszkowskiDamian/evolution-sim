@@ -1,5 +1,6 @@
-import { wrap, wrapDelta, TAU } from '../utils/math';
+import { wrap, wrapDelta, TAU, clamp } from '../utils/math';
 import type { Rng } from '../utils/rng';
+import { fbm2D } from './noise';
 
 /** Pusta komórka — agent porusza się przez nią swobodnie. */
 export const TILE_EMPTY = 0;
@@ -142,6 +143,56 @@ export class TerrainGrid {
   /** Lity dysk skały — masyw góry, ZANIM wyrzeźbi się w nim system tuneli. */
   carveSolidDisc(centerX: number, centerY: number, radius: number): void {
     this.fillDisc(centerX, centerY, radius, TILE_ROCK);
+  }
+
+  /**
+   * Lity masyw góry o NIEREGULARNYM, naturalnym obrysie — zamiast idealnego
+   * koła (`carveSolidDisc`), mieszanka gradientu odległości od środka
+   * (żeby masyw pozostał ograniczony, nie rozlał się po całej mapie) z
+   * fraktalnym szumem (`fbm2D`) — dokładnie ta sama technika co generowanie
+   * wybrzeży wysp w typowych generatorach map proceduralnych.
+   *
+   * `e(x,y) = gradient(x,y) * (1-noiseWeight) + noise(x,y) * noiseWeight`,
+   * lita komórka gdy `e > 0`. Przy `noiseWeight = 0` wynik jest identyczny
+   * z `carveSolidDisc` (czyste koło); rosnący `noiseWeight` robi obrys
+   * coraz bardziej postrzępiony — przy wysokich wartościach masyw może się
+   * nawet rozpaść na kilka osobnych brył, tak jak naturalne pasma górskie.
+   *
+   * Skanuje kwadrat o boku `2*radius*1.5` (zapas na "palce" wystające poza
+   * nominalny promień) — hojniejszy niż `fillDisc`, bo szum z definicji
+   * może wypchnąć obrys poza czysto kołowy zasięg.
+   */
+  carveOrganicMassif(
+    centerX: number,
+    centerY: number,
+    radius: number,
+    seed: number,
+    opts: { octaves: number; frequency: number; lacunarity: number; gain: number; noiseWeight: number },
+  ): void {
+    const reach = Math.ceil((radius * 1.5) / this.cellSize) + 1;
+    const baseCx = Math.floor(centerX / this.cellSize);
+    const baseCy = Math.floor(centerY / this.cellSize);
+    const noiseW = clamp(opts.noiseWeight, 0, 1);
+
+    for (let oy = -reach; oy <= reach; oy++) {
+      for (let ox = -reach; ox <= reach; ox++) {
+        const cx = baseCx + ox;
+        const cy = baseCy + oy;
+        const { x, y } = this.cellCenter(cx, cy);
+        const dx = wrapDelta(x - centerX, this.worldSize);
+        const dy = wrapDelta(y - centerY, this.worldSize);
+        const distNorm = Math.sqrt(dx * dx + dy * dy) / radius;
+
+        // 1 w środku, 0 na nominalnym promieniu, ujemny poza nim.
+        const gradient = 1 - distNorm;
+        // fbm próbkowane we WSPÓŁRZĘDNYCH ŚWIATA, skalowane częstotliwością
+        // niezależną od `radius` — ta sama `frequency` daje więcej "guzów"
+        // na dużym masywie niż na małym, tak jak w prawdziwym terenie.
+        const n = fbm2D(x * opts.frequency, y * opts.frequency, seed, opts.octaves, opts.lacunarity, opts.gain) * 2 - 1;
+        const e = gradient * (1 - noiseW) + n * noiseW;
+        if (e > 0) this.set(cx, cy, TILE_ROCK);
+      }
+    }
   }
 
   /**

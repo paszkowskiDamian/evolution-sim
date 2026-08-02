@@ -231,12 +231,15 @@ export class World {
     }
 
     // Góry są nieruchome — generowane raz, w przeciwieństwie do płatów
-    // jedzenia nie mają własnej dynamiki dryfu. Każda to LITY masyw skały
-    // (carveSolidDisc), w którym dopiero potem "błądzenie pijaka"
-    // (carveTunnelNetwork) rzeźbi rozgałęzioną, organiczną sieć tuneli —
-    // nie jedną okrągłą salę. Oba kroki są systematycznym wypełnieniem
-    // komórek (nie losowym rozrzutem punktów), więc wynik jest szczelny —
-    // bez szczelin, przez które dałoby się przejść bez kopania.
+    // jedzenia nie mają własnej dynamiki dryfu. Każda to LITY masyw skały o
+    // nieregularnym, naturalnym obrysie (carveOrganicMassif — gradient
+    // odległości od środka zmieszany z fraktalnym szumem, ta sama technika
+    // co generowanie wybrzeży wysp w typowych generatorach map), w którym
+    // dopiero potem "błądzenie pijaka" (carveTunnelNetwork) rzeźbi
+    // rozgałęzioną, organiczną sieć tuneli — nie jedną okrągłą salę. Oba
+    // kroki są systematycznym wypełnieniem komórek (nie losowym rozrzutem
+    // punktów), więc wynik jest szczelny — bez szczelin, przez które
+    // dałoby się przejść bez kopania.
     //
     // DWA OSOBNE przebiegi (najpierw wszystkie masywy, potem wszystkie
     // tunele) są konieczne: przy losowych środkach gór sąsiednie masywy
@@ -250,7 +253,17 @@ export class World {
       const x = this.foodRng.range(0, this.config.worldSize);
       const y = this.foodRng.range(0, this.config.worldSize);
       this.mountains.push({ x, y });
-      this.terrain.carveSolidDisc(x, y, this.config.mountainRadius);
+      // Osobny seed szumu na górę (wciąż deterministyczny — ciągnięty z
+      // TEGO SAMEGO strumienia foodRng co pozycja) — bez tego wszystkie
+      // masywy dzieliłyby identyczny wzór obrysu, tylko przesunięty.
+      const noiseSeed = this.foodRng.int(0x7fffffff);
+      this.terrain.carveOrganicMassif(x, y, this.config.mountainRadius, noiseSeed, {
+        octaves: this.config.mountainNoiseOctaves,
+        frequency: this.config.mountainNoiseFrequency,
+        lacunarity: this.config.mountainNoiseLacunarity,
+        gain: this.config.mountainNoiseGain,
+        noiseWeight: this.config.mountainNoiseWeight,
+      });
     }
     for (const m of this.mountains) {
       this.terrain.carveTunnelNetwork(m.x, m.y, this.foodRng, {
