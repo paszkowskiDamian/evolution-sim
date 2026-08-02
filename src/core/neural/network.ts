@@ -46,10 +46,10 @@ export const SENSOR_LABELS = [
   'niosę jedzenie',
 ] as const;
 
-export const OUTPUT_LABELS = ['obrót', 'ruch', 'chęć rozmnażania', 'chwyć/upuść', 'atak'] as const;
+export const OUTPUT_LABELS = ['obrót', 'ruch', 'chęć rozmnażania', 'chwyć/upuść', 'atak', 'jedz'] as const;
 
-export const INPUT_COUNT = SENSOR_LABELS.length; // 17
-export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 5
+export const INPUT_COUNT = SENSOR_LABELS.length; // 22
+export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 6
 
 /** Zdekodowany kształt sieci danego agenta — patrz `decodeBrainShape` w genetics/genome.ts. */
 export interface BrainShape {

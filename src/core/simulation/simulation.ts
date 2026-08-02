@@ -53,10 +53,11 @@ export class Simulation {
       new MovementSystem(), //     3. ruch
       new CollisionSystem(), //    4. kolizje agent-agent
       new RockCollisionSystem(), // 5. kamienie jako przeszkody
-      // CarrySystem PRZED FoodSystem: aktywne chwycenie jedzenia musi
-      // zdążyć zanim automat zjadania na dotyk je pochłonie.
+      // CarrySystem PRZED FoodSystem: jeśli agent w tym samym ticku chce
+      // I podnieść, I zjeść, podniesienie z ziemi ma pierwszeństwo — zjedzenie
+      // wtedy sięga do właśnie napełnionego ekwipunku zamiast do ziemi.
       new CarrySystem(), //        6. chwyt/upuszczenie (kamienie i jedzenie)
-      new FoodSystem(), //         7. jedzenie (to, czego nie chwycono)
+      new FoodSystem(), //         7. jedzenie — wyłącznie na decyzję (wyjście "jedz")
       new AttackSystem(), //       8. walka
       new EnergySystem(), //       9. zużycie energii + regeneracja zdrowia
       new DeathSystem(), //        10. śmierć
