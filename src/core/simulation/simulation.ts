@@ -19,6 +19,10 @@ import { PopulationGuardSystem } from '../systems/PopulationGuardSystem';
 import { StatisticsSystem } from '../systems/StatisticsSystem';
 import type { AgentView } from '../../shared/types';
 import { Agent } from '../agents/agent';
+import { GpuContext } from '../gpu/GpuContext';
+import { GpuBrainSystem } from '../systems/gpu/GpuBrainSystem';
+import { GpuMovementSystem } from '../systems/gpu/GpuMovementSystem';
+import { GpuEnergySystem } from '../systems/gpu/GpuEnergySystem';
 
 /**
  * Silnik symulacji.
@@ -36,6 +40,20 @@ export class Simulation {
   /** Genom-przodek do zasiania startowej populacji — patrz World.spawnSeededAgent. */
   private readonly seedGenome?: Float32Array;
 
+  /**
+   * GPU (WebGPU) jest OPCJONALNE i wyłączone domyślnie — patrz `enableGpu()`
+   * i komentarz w `GpuContext.ts` o tym, jak mało to zostało zweryfikowane.
+   * Systemy GPU zastępują TYLKO Brain/Movement/Energy (najbardziej
+   * "matematyczne", bezstanowe-między-agentami części ticka); reszta
+   * (sensory, kolizje, przedmioty, walka, rozmnażanie, mutacje) zawsze
+   * chodzi na CPU — patrz uzasadnienie w README/rozmowie, dlaczego akurat
+   * te trzy, a nie "cały" silnik.
+   */
+  private gpu: GpuContext | null = null;
+  private gpuBrain: GpuBrainSystem | null = null;
+  private gpuMovement: GpuMovementSystem | null = null;
+  private gpuEnergy: GpuEnergySystem | null = null;
+
   /** Czas wykonania ostatniego ticka w ms — do panelu wydajności. */
   lastTickMs = 0;
 
@@ -45,12 +63,45 @@ export class Simulation {
     this.systems = this.buildSystems();
   }
 
+  get gpuEnabled(): boolean {
+    return this.gpu !== null;
+  }
+
+  /**
+   * Próbuje przełączyć Brain/Movement/Energy na WebGPU. Zwraca `false`
+   * (i zostaje na CPU) na KAŻDYM braku wsparcia/błędzie — bezpieczne do
+   * wywołania zawsze, nawet w środowiskach bez WebGPU (Node, starsze
+   * przeglądarki). Wywołanie na już-włączonym GPU jest no-opem (`true`).
+   */
+  async enableGpu(): Promise<boolean> {
+    if (this.gpu) return true;
+    const ctx = await GpuContext.request();
+    if (!ctx) return false;
+    this.gpu = ctx;
+    this.gpuBrain = new GpuBrainSystem(ctx);
+    this.gpuMovement = new GpuMovementSystem(ctx);
+    this.gpuEnergy = new GpuEnergySystem(ctx);
+    this.systems = this.buildSystems();
+    return true;
+  }
+
+  /** Wraca na CPU. Bezpieczne, gdy GPU nie było w ogóle włączone. */
+  disableGpu(): void {
+    if (!this.gpu) return;
+    this.gpu.destroy();
+    this.gpu = null;
+    this.gpuBrain = null;
+    this.gpuMovement = null;
+    this.gpuEnergy = null;
+    this.systems = this.buildSystems();
+  }
+
   private buildSystems(): System[] {
     return [
       new SpatialIndexSystem(), // 0. indeks przestrzenny
       new SensorSystem(), //       1. sensory
-      new BrainSystem(), //        2. decyzja sieci neuronowej
-      new MovementSystem(), //     3. ruch
+      this.gpuBrain ?? new BrainSystem(), //       2. decyzja sieci neuronowej
+      this.gpuMovement ?? new MovementSystem(), // 3. ruch
       new CollisionSystem(), //    4. kolizje agent-agent
       new RockCollisionSystem(), // 5. kamienie jako przeszkody
       // CarrySystem PRZED FoodSystem: jeśli agent w tym samym ticku chce
@@ -59,7 +110,7 @@ export class Simulation {
       new CarrySystem(), //        6. chwyt/upuszczenie (kamienie i jedzenie)
       new FoodSystem(), //         7. jedzenie — wyłącznie na decyzję (wyjście "jedz")
       new AttackSystem(), //       8. walka
-      new EnergySystem(), //       9. zużycie energii + regeneracja zdrowia
+      this.gpuEnergy ?? new EnergySystem(), // 9. zużycie energii + regeneracja zdrowia
       new DeathSystem(), //        10. śmierć
       new ReproductionSystem(), // 11. rozmnażanie
       new MutationSystem(), //     12. mutacje
@@ -76,8 +127,19 @@ export class Simulation {
     return this.world.tick;
   }
 
-  /** Wykonuje jeden tick symulacji. */
+  /**
+   * Wykonuje jeden tick symulacji — WYŁĄCZNIE CPU. Rzuca, jeśli GPU jest
+   * włączone: odczyt wyniku z bufora WebGPU jest z definicji asynchroniczny
+   * (`mapAsync`, patrz `gpuBuffers.ts`), więc synchroniczna pętla nie może
+   * poprawnie zaczekać na wynik przed uruchomieniem kolejnego systemu —
+   * użyj `stepAsync()`/`runAsync()`.
+   */
   step(): void {
+    if (this.gpu) {
+      throw new Error(
+        'Symulacja z aktywnym GPU wymaga stepAsync()/runAsync() zamiast step()/run().',
+      );
+    }
     const t0 = performance.now();
     const world = this.world;
     world.resetEvents();
@@ -88,9 +150,29 @@ export class Simulation {
     this.lastTickMs = performance.now() - t0;
   }
 
-  /** Wykonuje `n` ticków (do przyspieszania i biegów headless). */
+  /** Wykonuje `n` ticków (do przyspieszania i biegów headless). Tylko CPU — patrz `step()`. */
   run(n: number): void {
     for (let i = 0; i < n; i++) this.step();
+  }
+
+  /**
+   * Wersja async — jedyna poprawna droga, gdy GPU jest włączone (patrz
+   * `enableGpu()`). Działa identycznie na CPU (systemy synchroniczne po
+   * prostu `await`-ują natychmiast), więc bezpieczna do użycia zawsze.
+   */
+  async stepAsync(): Promise<void> {
+    const t0 = performance.now();
+    const world = this.world;
+    world.resetEvents();
+    world.tick++;
+    for (const system of this.systems) {
+      await system.update(world);
+    }
+    this.lastTickMs = performance.now() - t0;
+  }
+
+  async runAsync(n: number): Promise<void> {
+    for (let i = 0; i < n; i++) await this.stepAsync();
   }
 
   /**

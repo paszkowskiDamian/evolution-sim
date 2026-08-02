@@ -14,11 +14,13 @@ export default function App() {
           running={sim.running}
           speed={sim.speed}
           config={sim.config}
+          gpuStatus={sim.gpuStatus}
           onRunning={sim.setRunning}
           onSpeed={sim.setSpeed}
           onStep={sim.stepOnce}
           onReset={sim.reset}
           onFit={sim.fitWorld}
+          onToggleGpu={sim.toggleGpu}
         />
         <AgentPanel agent={sim.selected} onFollow={sim.follow} onClear={sim.clearSelection} />
       </aside>

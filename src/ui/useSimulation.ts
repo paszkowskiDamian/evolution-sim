@@ -61,6 +61,15 @@ const EMPTY_SNAPSHOT: UiSnapshot = {
 
 const UI_REFRESH_MS = 150;
 
+/**
+ * Stan ścieżki GPU widoczny w UI — patrz `Controls.tsx` (przycisk "Spróbuj
+ * GPU") i `GpuContext.ts` (dlaczego to jest EKSPERYMENTALNE/niezweryfikowane).
+ * GPU nigdy nie włącza się samo — wymaga świadomego kliknięcia, żeby ewentualna
+ * awaria (np. błąd shadera na sprzęcie, na którym tego nigdy nie sprawdzono)
+ * nie zaskoczyła nikogo cichą zmianą zachowania przy zwykłym otwarciu strony.
+ */
+export type GpuStatus = 'cpu' | 'gpu' | 'unsupported';
+
 export function useSimulation() {
   const simRef = useRef<Simulation | null>(null);
   if (simRef.current === null) simRef.current = new Simulation({}, SEED_GENOME);
@@ -70,6 +79,7 @@ export function useSimulation() {
   const runningRef = useRef(true);
   const speedRef = useRef(1);
   const stepOnceRef = useRef(false);
+  const tickBusyRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [running, setRunningState] = useState(true);
@@ -77,6 +87,7 @@ export function useSimulation() {
   const [snapshot, setSnapshot] = useState<UiSnapshot>(EMPTY_SNAPSHOT);
   const [selected, setSelected] = useState<AgentView | null>(null);
   const [config, setConfig] = useState<SimulationConfig>(defaultConfig);
+  const [gpuStatus, setGpuStatus] = useState<GpuStatus>('cpu');
   const selectedIdRef = useRef<number | null>(null);
 
   // ---------------------------------------------------------------- pętla
@@ -101,17 +112,31 @@ export function useSimulation() {
       renderer.camera.fitWorld(sim.config.worldSize);
       setReady(true);
 
-      const loop = (now: number) => {
+      const loop = async (now: number) => {
         if (cancelled) return;
         raf = requestAnimationFrame(loop);
         const current = simRef.current!;
 
-        if (runningRef.current) {
-          current.run(speedRef.current);
-        } else if (stepOnceRef.current) {
-          current.step();
-          stepOnceRef.current = false;
+        // Gdy GPU jest aktywne, odczyt wyniku ticka jest asynchroniczny
+        // (patrz Simulation.stepAsync/runAsync i GpuContext.ts) — jeśli jeden
+        // tick nie zdąży się zamknąć przed kolejną klatką, po prostu
+        // POMIJAMY tę klatkę (nie renderujemy, nie odpalamy drugiego ticka
+        // równolegle) zamiast ryzykować nakładające się, współbieżne ticki.
+        if (tickBusyRef.current) return;
+        tickBusyRef.current = true;
+        try {
+          if (runningRef.current) {
+            if (current.gpuEnabled) await current.runAsync(speedRef.current);
+            else current.run(speedRef.current);
+          } else if (stepOnceRef.current) {
+            if (current.gpuEnabled) await current.stepAsync();
+            else current.step();
+            stepOnceRef.current = false;
+          }
+        } finally {
+          tickBusyRef.current = false;
         }
+        if (cancelled) return;
 
         renderer.selectedId = selectedIdRef.current;
         renderer.render(current);
@@ -320,6 +345,21 @@ export function useSimulation() {
     follow(null);
   }, [follow]);
 
+  /**
+   * GPU nigdy nie włącza się samo (patrz komentarz przy `GpuStatus`) — to
+   * jedyna droga do jego aktywacji, wywoływana z przycisku w UI.
+   */
+  const toggleGpu = useCallback(async () => {
+    const sim = simRef.current!;
+    if (sim.gpuEnabled) {
+      sim.disableGpu();
+      setGpuStatus('cpu');
+      return;
+    }
+    const ok = await sim.enableGpu();
+    setGpuStatus(ok ? 'gpu' : 'unsupported');
+  }, []);
+
   return {
     hostRef,
     ready,
@@ -328,6 +368,7 @@ export function useSimulation() {
     snapshot,
     selected,
     config,
+    gpuStatus,
     setRunning,
     setSpeed,
     stepOnce,
@@ -335,5 +376,6 @@ export function useSimulation() {
     follow,
     fitWorld,
     clearSelection,
+    toggleGpu,
   };
 }

@@ -1,5 +1,5 @@
 import type { SimulationConfig } from '../../config/simulationConfig';
-import { NeuralNetwork, INPUT_COUNT } from '../neural/network';
+import { NeuralNetwork, INPUT_COUNT, type BrainShape } from '../neural/network';
 import { decodePhenotype, decodeBrainShape, type Phenotype } from '../genetics/genome';
 
 /**
@@ -46,6 +46,9 @@ export class Agent {
   // --- dziedziczność ---
   readonly genome: Float32Array;
   readonly brain: NeuralNetwork;
+  /** Zdekodowany kształt sieci (patrz decodeBrainShape) — potrzebny GPU do
+   *  spakowania bufora bez ponownego dekodowania genów na CPU co tick. */
+  readonly brainShape: BrainShape;
   readonly phenotype: Phenotype;
   readonly motherId: number;
   readonly fatherId: number;
@@ -87,6 +90,7 @@ export class Agent {
     this.id = id;
     this.genome = genome;
     const shape = decodeBrainShape(genome, config);
+    this.brainShape = shape;
     this.brain = new NeuralNetwork(genome, config, shape);
     this.hiddenState = new Float32Array(this.brain.recurrentWidth);
     this.phenotype = decodePhenotype(genome, config);

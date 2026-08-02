@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import type { SimulationConfig } from '../../config/simulationConfig';
+import type { GpuStatus } from '../useSimulation';
 
 interface Props {
   running: boolean;
   speed: number;
   config: SimulationConfig;
+  gpuStatus: GpuStatus;
   onRunning: (v: boolean) => void;
   onSpeed: (v: number) => void;
   onStep: () => void;
   onReset: (overrides: Partial<SimulationConfig>) => void;
   onFit: () => void;
+  onToggleGpu: () => void;
 }
 
 /** Parametry, które da się sensownie zmieniać z UI (reszta — w pliku config). */
@@ -48,7 +51,29 @@ const TUNABLE: Array<{
 
 const SPEEDS = [1, 2, 5, 10, 25, 100];
 
-export function Controls({ running, speed, config, onRunning, onSpeed, onStep, onReset, onFit }: Props) {
+function gpuStatusLabel(status: GpuStatus): string {
+  switch (status) {
+    case 'gpu':
+      return 'GPU aktywne';
+    case 'unsupported':
+      return 'GPU niedostępne w tej przeglądarce';
+    default:
+      return 'CPU (domyślnie)';
+  }
+}
+
+export function Controls({
+  running,
+  speed,
+  config,
+  gpuStatus,
+  onRunning,
+  onSpeed,
+  onStep,
+  onReset,
+  onFit,
+  onToggleGpu,
+}: Props) {
   const [draft, setDraft] = useState<Partial<SimulationConfig>>({});
   const value = (key: keyof SimulationConfig): number =>
     (draft[key] as number | undefined) ?? (config[key] as number);
@@ -79,6 +104,21 @@ export function Controls({ running, speed, config, onRunning, onSpeed, onStep, o
             </button>
           ))}
         </div>
+      </label>
+
+      <label className="field">
+        <span>
+          obliczenia (mózg/ruch/energia): <b>{gpuStatusLabel(gpuStatus)}</b>
+        </span>
+        <div className="row-buttons">
+          <button onClick={onToggleGpu} disabled={gpuStatus === 'unsupported'}>
+            {gpuStatus === 'gpu' ? 'Wróć na CPU' : 'Spróbuj GPU (eksperymentalne)'}
+          </button>
+        </div>
+        <p className="muted small">
+          Niezweryfikowane na prawdziwym sprzęcie — wymaga przeglądarki z WebGPU (Chrome/Edge 113+
+          na karcie graficznej). Jeśli coś pójdzie nie tak, po prostu wróć na CPU.
+        </p>
       </label>
 
       <h2>Parametry</h2>
