@@ -1,7 +1,7 @@
 import type { SimulationConfig } from '../../config/simulationConfig';
 import type { Rng } from '../utils/rng';
 import { geneToRange } from '../utils/math';
-import { brainGeneCount, type BrainShape } from '../neural/network';
+import { brainGeneCount, computeBrainLayout, INPUT_COUNT, type BrainShape } from '../neural/network';
 
 /**
  * Genom = jedna płaska tablica liczb (Float32Array).
@@ -57,17 +57,79 @@ export function bioGeneOffset(config: SimulationConfig): number {
   return brainGeneCount(config) + structGeneCount(config);
 }
 
-/** Losowy genom startowy — wagi z rozkładu normalnego, geny strukturalne i bio jednostajnie. */
+/** Odchylenie standardowe biasów — bias nie ma "fan-inu", więc dostaje małą stałą wariancję. */
+const BIAS_STDDEV = 0.2;
+
+/**
+ * Czysta wariancja 1/fan_in (poniżej) trzyma sygnał w "uporządkowanej"
+ * fazie sieci tanh — dla płytkiej sieci to bez znaczenia, ale przy
+ * dziesiątkach kolejno ułożonych warstw sygnał eksponencjalnie zanika do
+ * STAŁEGO PUNKTU niezależnego od wejścia (matematycznie zmierzone: przy
+ * gain=1 i głębokości 40 różnica wyjścia między skrajnie różnymi wejściami
+ * spada do ~0.05 — sieć w praktyce nie widzi sensorów). Pomnożenie
+ * odchylenia przez stały współczynnik >1 przesuwa sieć w fazę "chaotyczną",
+ * w której wejście realnie wpływa na wyjście na całej głębokości 20-50
+ * warstw, bez pełnego nasycenia do ±1. Wartość dobrana empirycznie
+ * (patrz eksperyment w historii zmian) — to wciąż wyłącznie parametr
+ * ROZKŁADU STARTOWEGO, żadnego uczenia gradientowego.
+ */
+const CHAOTIC_GAIN = 1.2;
+
+/**
+ * Losowy genom startowy.
+ *
+ * Wagi sieci są inicjalizowane z wariancją skalowaną przez fan-in bloku
+ * (1/√fan_in — standardowa technika, tu wyłącznie dla RÓWNOWAGI SYGNAŁU,
+ * bez żadnego uczenia gradientowego). Bez tego stałe odchylenie 0.8 na
+ * każdej wadze, powielone przez dziesiątki kolejnych warstw tanh, nasyca
+ * sieć do stałego ±1 już po pierwszej-drugiej warstwie — agent staje się
+ * ślepy na sensory niezależnie od tego, co widzi.
+ *
+ * Skalowanie liczymy od RZECZYWISTEJ (zdekodowanej) szerokości warstwy
+ * TEGO konkretnego genomu, nie od pojemności (`maxLayerWidth`). Dlatego
+ * geny strukturalne losujemy NAJPIERW i dekodujemy od razu — użycie samej
+ * pojemności zakładałoby, że każda warstwa jest maksymalnie szeroka, co
+ * przy szerokościach losowanych bliżej środka zakresu systematycznie
+ * ZANIŻA sygnał, a po dziesiątkach warstw głębokości gubi go całkowicie
+ * (dokładnie ten sam objaw co nasycenie, tylko w drugą stronę).
+ *
+ * Geny biologiczne pozostają jednostajne w (-1, 1) — to nie są wagi sieci,
+ * tylko wskaźniki dekodowane przez `geneToRange`.
+ */
 export function createRandomGenome(config: SimulationConfig, rng: Rng): Float32Array {
+  const layout = computeBrainLayout(config);
   const brainGenes = brainGeneCount(config);
   const structGenes = structGeneCount(config);
   const genome = new Float32Array(brainGenes + structGenes + BIO_GENE_COUNT);
-  for (let i = 0; i < brainGenes; i++) {
-    genome[i] = rng.gaussian(0, 0.8);
-  }
+  const w = layout.capacityWidth;
+
+  const fill = (start: number, end: number, stddev: number): void => {
+    for (let i = start; i < end; i++) genome[i] = rng.gaussian(0, stddev);
+  };
+  const fanInStddev = (fanIn: number): number => CHAOTIC_GAIN / Math.sqrt(Math.max(1, fanIn));
+
   for (let i = 0; i < structGenes; i++) {
     genome[brainGenes + i] = rng.symmetric(1);
   }
+  const shape = decodeBrainShape(genome, config);
+
+  fill(layout.w1Offset, layout.b1Offset, fanInStddev(INPUT_COUNT)); // wejście -> warstwa 0
+  fill(layout.b1Offset, layout.recOffset, BIAS_STDDEV); // bias warstwy 0
+  fill(layout.recOffset, layout.recOffset + w * w, fanInStddev(shape.widths[0])); // rekurencja warstwy 0
+  for (let k = 1; k < layout.maxLayers; k++) {
+    // Blok k czyta z warstwy k-1, więc jego fan-in to RZECZYWISTA
+    // szerokość warstwy k-1 — niezależnie od tego, czy warstwa k mieści
+    // się w aktualnej głębokości tego agenta (jeśli kiedyś "aktywuje" ją
+    // mutacja genu strukturalnego, ma dziedziczyć sensownie skalowane wagi).
+    fill(layout.whOffset[k], layout.whOffset[k] + w * w, fanInStddev(shape.widths[k - 1]));
+    fill(layout.bhOffset[k], layout.bhOffset[k] + w, BIAS_STDDEV);
+  }
+  // Wyjście czyta z OSTATNIEJ FAKTYCZNIE UŻYWANEJ warstwy (layerCount-1),
+  // nie z ostatniego slotu pojemności — to jedyny blok, dla którego te
+  // dwa mogą się różnić, gdy layerCount < maxHiddenLayers.
+  fill(layout.w2Offset, layout.b2Offset, fanInStddev(shape.widths[shape.layerCount - 1]));
+  fill(layout.b2Offset, brainGenes, BIAS_STDDEV); // bias wyjścia
+
   for (let i = 0; i < BIO_GENE_COUNT; i++) {
     genome[brainGenes + structGenes + i] = rng.symmetric(1);
   }

@@ -53,24 +53,61 @@ export interface BrainShape {
 }
 
 /**
- * Rozmiar sekcji genomu zarezerwowanej na mózg — to POJEMNOŚĆ (liczona od
- * `maxHiddenLayers`/`maxLayerWidth` z configu), nie rozmiar faktycznie
- * używany przez danego agenta. Dzięki temu długość genomu jest identyczna
- * w całej populacji niezależnie od tego, jaki kształt sieci wylosował
- * konkretny osobnik — niewykorzystana pojemność to po prostu "nieaktywne
- * DNA": wciąż mutowane, gotowe zostać "włączone" przez geny strukturalne.
+ * Odsetki bloków wag w genomie — liczone WYŁĄCZNIE z configu
+ * (`maxHiddenLayers`/`maxLayerWidth`), identyczne dla każdego agenta bez
+ * względu na jego zdekodowany kształt. To jest sedno "genomu
+ * pojemnościowego": agent czyta tylko podprostokąt [0..widths[l]) każdego
+ * zarezerwowanego bloku.
+ *
+ * Współdzielone przez `NeuralNetwork` (odczyt wag) i `createRandomGenome`
+ * (inicjalizacja) — jedno źródło prawdy, żeby te dwa miejsca nigdy się
+ * nie rozjechały.
+ */
+export interface BrainLayout {
+  /** Pojemnościowa szerokość warstwy (stride w genomie) — z configu. */
+  capacityWidth: number;
+  maxLayers: number;
+  w1Offset: number;
+  b1Offset: number;
+  recOffset: number;
+  /** Indeksowane od 1 (warstwa 0 nie ma "wejścia z poprzedniej warstwy"). */
+  whOffset: number[];
+  bhOffset: number[];
+  w2Offset: number;
+  b2Offset: number;
+}
+
+export function computeBrainLayout(config: SimulationConfig): BrainLayout {
+  const w = config.maxLayerWidth;
+  const maxLayers = config.maxHiddenLayers;
+
+  const w1Offset = 0;
+  const b1Offset = w1Offset + INPUT_COUNT * w;
+  const recOffset = b1Offset + w;
+  const whOffset: number[] = [];
+  const bhOffset: number[] = [];
+  let cursor = recOffset + w * w;
+  for (let k = 1; k < maxLayers; k++) {
+    whOffset[k] = cursor;
+    bhOffset[k] = cursor + w * w;
+    cursor += w * w + w;
+  }
+  const w2Offset = cursor;
+  const b2Offset = w2Offset + w * OUTPUT_COUNT;
+
+  return { capacityWidth: w, maxLayers, w1Offset, b1Offset, recOffset, whOffset, bhOffset, w2Offset, b2Offset };
+}
+
+/**
+ * Rozmiar sekcji genomu zarezerwowanej na mózg — to POJEMNOŚĆ, nie rozmiar
+ * faktycznie używany przez danego agenta. Dzięki temu długość genomu jest
+ * identyczna w całej populacji niezależnie od tego, jaki kształt sieci
+ * wylosował konkretny osobnik — niewykorzystana pojemność to po prostu
+ * "nieaktywne DNA": wciąż mutowane, gotowe zostać "włączone" przez geny
+ * strukturalne.
  */
 export function brainGeneCount(config: SimulationConfig): number {
-  const w = config.maxLayerWidth;
-  const l = config.maxHiddenLayers;
-  return (
-    INPUT_COUNT * w +
-    w + // wejście -> warstwa 0 (wagi + bias)
-    w * w + // zarezerwowany blok rekurencyjny, wyłącznie warstwa 0
-    (l - 1) * (w * w + w) + // przejścia warstwa->warstwa dla warstw 1..l-1
-    w * OUTPUT_COUNT +
-    OUTPUT_COUNT // ostatnia warstwa ukryta -> wyjście
-  );
+  return computeBrainLayout(config).b2Offset + OUTPUT_COUNT;
 }
 
 /**
@@ -101,8 +138,8 @@ export class NeuralNetwork {
   private readonly w1Offset: number;
   private readonly b1Offset: number;
   private readonly recOffset: number;
-  private readonly whOffset: number[] = [];
-  private readonly bhOffset: number[] = [];
+  private readonly whOffset: number[];
+  private readonly bhOffset: number[];
   private readonly w2Offset: number;
   private readonly b2Offset: number;
 
@@ -115,24 +152,14 @@ export class NeuralNetwork {
     this.layerActs = this.widths.map((w) => new Float32Array(w));
     this.recurrentWidth = this.widths[0];
 
-    // Odsetki liczone WYŁĄCZNIE z configu (maxHiddenLayers/maxLayerWidth) —
-    // identyczne dla każdego agenta bez względu na jego zdekodowany
-    // kształt. To jest sedno "genomu pojemnościowego": agent czyta tylko
-    // podprostokąt [0..widths[l]) każdego zarezerwowanego bloku wag.
-    const w = config.maxLayerWidth;
-    const maxLayers = config.maxHiddenLayers;
-
-    this.w1Offset = 0;
-    this.b1Offset = this.w1Offset + INPUT_COUNT * w;
-    this.recOffset = this.b1Offset + w;
-    let cursor = this.recOffset + w * w;
-    for (let k = 1; k < maxLayers; k++) {
-      this.whOffset[k] = cursor;
-      this.bhOffset[k] = cursor + w * w;
-      cursor += w * w + w;
-    }
-    this.w2Offset = cursor;
-    this.b2Offset = this.w2Offset + w * OUTPUT_COUNT;
+    const layout = computeBrainLayout(config);
+    this.w1Offset = layout.w1Offset;
+    this.b1Offset = layout.b1Offset;
+    this.recOffset = layout.recOffset;
+    this.whOffset = layout.whOffset;
+    this.bhOffset = layout.bhOffset;
+    this.w2Offset = layout.w2Offset;
+    this.b2Offset = layout.b2Offset;
 
     // Faktyczna (nie pojemnościowa) liczba wag — do kosztu energii w EnergySystem.
     let complexity = INPUT_COUNT * this.widths[0] + this.widths[0] + this.widths[0] * this.widths[0];

@@ -152,7 +152,7 @@ export const defaultConfig: SimulationConfig = {
   baseMetabolism: 0.12,
   moveCost: 0.018,
   sizeCost: 0.02,
-  brainCost: 0.006,
+  brainCost: 0.003,
 
   maxSpeed: 2.6,
   maxTurnRate: 0.22,
@@ -177,11 +177,11 @@ export const defaultConfig: SimulationConfig = {
   visionRadius: 260,
   neighborSampleLimit: 12,
 
-  minHiddenLayers: 1,
-  maxHiddenLayers: 3,
+  minHiddenLayers: 20,
+  maxHiddenLayers: 50,
   minLayerWidth: 4,
   maxLayerWidth: 16,
-  defaultLayerWidth: 10,
+  defaultLayerWidth: 32,
 
   statsInterval: 20,
   statsHistoryLength: 600,

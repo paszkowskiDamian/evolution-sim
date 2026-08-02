@@ -2,7 +2,7 @@ import type { System } from './System';
 import type { World } from '../world/world';
 import { Agent } from '../agents/agent';
 import { mutate, makeMutationReport } from '../genetics/mutation';
-import { TAU } from '../utils/math';
+import { TAU, wrap } from '../utils/math';
 
 /**
  * Zabezpieczenie przed całkowitym wymarciem populacji.
@@ -29,9 +29,14 @@ export class PopulationGuardSystem implements System {
       if (survivors.length > 0) {
         const parent = survivors[world.rng.int(survivors.length)];
         const genome = mutate(parent.genome, cfg, world.rng, this.report);
+        // Tuż obok rodzica, tak jak zwykłe rozmnażanie w MutationSystem —
+        // bez tego potomek "teleportował się" w losowe miejsce na mapie,
+        // mimo że ma prawdziwego rodzica tuż obok.
+        const angle = world.rng.range(0, TAU);
+        const dist = parent.phenotype.radius * 2 + 1;
         const child = new Agent(world.allocateAgentId(), genome, cfg, {
-          x: world.rng.range(0, cfg.worldSize),
-          y: world.rng.range(0, cfg.worldSize),
+          x: wrap(parent.x + Math.cos(angle) * dist, cfg.worldSize),
+          y: wrap(parent.y + Math.sin(angle) * dist, cfg.worldSize),
           heading: world.rng.range(0, TAU),
           energy: cfg.startEnergy,
           motherId: parent.id,
