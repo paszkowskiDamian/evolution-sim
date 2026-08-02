@@ -58,12 +58,20 @@ export interface SimulationConfig {
   // --- góry / jaskinie (formacje terenu) ---
   /** Ile formacji górskich istnieje w świecie. */
   mountainCount: number;
-  /** Promień pustego wnętrza (jaskini) — tu chowa się jedzenie i działa schronienie. */
-  mountainInnerRadius: number;
-  /** Zewnętrzny promień pierścienia skalnego — ściana góry wypełnia teren między inner a outer. */
-  mountainOuterRadius: number;
-  /** Ułamek spawnów jedzenia kierowany do wnętrza losowej góry (jedzenie "za ścianą"). */
-  caveFoodFraction: number;
+  /** Promień litego masywu góry (pełny dysk skały, ZANIM wyrzeźbi się w nim tunele). */
+  mountainRadius: number;
+  /** Kroków głównego kopacza sieci tuneli wewnątrz masywu (patrz `TerrainGrid.carveTunnelNetwork`). */
+  tunnelSteps: number;
+  /** Maks. losowy skręt (radiany) na krok — większe = bardziej kręta trasa. */
+  tunnelTurnAngle: number;
+  /** Szansa na odgałęzienie nowego korytarza przy danym kroku. */
+  tunnelBranchChance: number;
+  /** Twardy limit łącznej liczby odgałęzień na górę. */
+  tunnelMaxBranches: number;
+  /** Szansa na poszerzenie danego miejsca w małą komnatę. */
+  tunnelChamberChance: number;
+  /** Zapas litej skały, który musi pozostać między siecią tuneli a krawędzią masywu. */
+  tunnelMarginToEdge: number;
   /**
    * Próg wielkości (w komórkach terenu) rozróżniający "schronienie" (mała,
    * otoczona ze wszystkich stron kieszonka — jaskinia GÓRSKA albo dowolne
@@ -216,19 +224,26 @@ export const defaultConfig: SimulationConfig = {
   // osiągalne bez gromadzenia ogromnych zapasów, ale nie z jednego rzutu.
   buildRockThreshold: 3,
 
-  // Ściana góry wypełnia teren w pierścieniu 100-150 od środka (2 komórki
-  // grubości przy cellSize=25) wokół pustego wnętrza (jaskini). W
-  // przeciwieństwie do dawnego rozrzutu losowych kamieni-przedmiotów,
-  // wypełnienie SIATKI jest z definicji szczelne — bez szczelin, przez
-  // które dałoby się przejść bez kopania.
+  // Góra to LITY dysk skały (promień 150), a nie pusty pierścień — dopiero
+  // wewnątrz niego "błądzenie pijaka" wyrzeźbia rozgałęzioną sieć tuneli
+  // (patrz TerrainGrid.carveTunnelNetwork). Wypełnienie siatki jest
+  // z definicji szczelne — bez szczelin, przez które dałoby się przejść
+  // bez kopania — a granica sieci tuneli ma wbudowany zapas
+  // (tunnelMarginToEdge + promień komnaty), więc tunele nigdy nie
+  // przebijają się na zewnątrz masywu same z siebie.
   mountainCount: 10,
-  mountainInnerRadius: 100,
-  mountainOuterRadius: 150,
-  caveFoodFraction: 0.12,
-  // Naturalna jaskinia górska ma ok. 50 komórek (π·100²/25²). 120 daje
-  // wygodny margines na trochę większe pomieszczenia zbudowane przez
-  // agentów, ale jest wciąż o rzędy wielkości mniejsze niż otwarty świat
-  // (siatka 3000x3000 przy cellSize=25 to 14400 komórek).
+  mountainRadius: 150,
+  tunnelSteps: 50,
+  tunnelTurnAngle: 0.6,
+  tunnelBranchChance: 0.03,
+  tunnelMaxBranches: 3,
+  tunnelChamberChance: 0.08,
+  tunnelMarginToEdge: 25,
+  // Naturalna sieć tuneli wychodzi w praktyce na rząd kilkudziesięciu-
+  // -kilkuset komórek (zmierzone probe'em). 120 daje margines na trochę
+  // większe pomieszczenia zbudowane przez agentów, ale jest wciąż o rzędy
+  // wielkości mniejsze niż otwarty świat (siatka 3000x3000 przy
+  // cellSize=25 to 14400 komórek).
   shelterMaxCells: 120,
   shelterHealthRegenMultiplier: 3,
   shelterMetabolismDiscount: 0.6,

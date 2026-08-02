@@ -149,20 +149,32 @@ export class PixiRenderer {
   }
 
   /**
-   * Delikatny zarys wnętrza każdej jaskini (schronienie — patrz
-   * `World.isInShelter`) — góry same są widoczne przez gęstość leżących
-   * tam kamieni, ale bez tego obrysu nic nie odróżnia "pustego środka"
-   * od zwykłej otwartej przestrzeni na planszy.
+   * Delikatny podkład pod komórkami terenu aktualnie liczącymi się jako
+   * schronienie (patrz `World.isInShelter` / `TerrainGrid.getShelterCells`)
+   * — czytany NA ŻYWO z siatki terenu, nie z kształtu góry przy starcie
+   * świata. To celowe: wcześniejsza wersja rysowała stały okrąg wokół
+   * pierwotnego środka góry, więc po całkowitym przekopaniu ściany podkład
+   * zostawał widoczny mimo że mechanicznie to miejsce dawno przestało być
+   * schronieniem — myląca "duchowa" jaskinia. Czytanie żywej mapy naprawia
+   * to z definicji: podkład znika, jak tylko siatka przestaje klasyfikować
+   * dane komórki jako otoczone.
    */
   private drawCaves(sim: Simulation): void {
     const g = this.caveLayer;
     g.clear();
-    const lw = Math.max(1, 1.5 / Math.max(this.camera.zoom, 0.0001));
-    for (const m of sim.world.getMountains()) {
-      g.circle(m.x, m.y, sim.config.mountainInnerRadius)
-        .fill({ color: 0x3a3220, alpha: 0.12 })
-        .stroke({ width: lw, color: 0x6b5a35, alpha: 0.35 });
+    const terrain = sim.world.terrain;
+    const shelterCells = terrain.getShelterCells(sim.config.shelterMaxCells);
+    const cellSize = terrain.cellSize;
+    const cols = terrain.cols;
+
+    for (let cy = 0; cy < cols; cy++) {
+      const rowBase = cy * cols;
+      for (let cx = 0; cx < cols; cx++) {
+        if (shelterCells[rowBase + cx] !== 1) continue;
+        g.rect(cx * cellSize, cy * cellSize, cellSize, cellSize);
+      }
     }
+    g.fill({ color: 0x3a3220, alpha: 0.28 });
   }
 
   /**

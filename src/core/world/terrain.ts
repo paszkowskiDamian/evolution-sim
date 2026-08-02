@@ -1,4 +1,5 @@
-import { wrap, wrapDelta } from '../utils/math';
+import { wrap, wrapDelta, TAU } from '../utils/math';
+import type { Rng } from '../utils/rng';
 
 /** Pusta komórka — agent porusza się przez nią swobodnie. */
 export const TILE_EMPTY = 0;
@@ -95,15 +96,14 @@ export class TerrainGrid {
   }
 
   /**
-   * Wypełnia pierścień (annulus) wokół `(cx,cy)` — używane do rzeźbienia
-   * gór. Próbkuje środek KAŻDEJ komórki w kwadracie opisanym na promieniu
-   * zewnętrznym (systematyczne wypełnienie, nie losowe próbkowanie punktów)
-   * — dlatego wynikowy pierścień jest z definicji szczelny, bez dziur.
+   * Wypełnia dysk wokół `(centerX,centerY)` wartością `value`. Próbkuje
+   * środek KAŻDEJ komórki w kwadracie opisanym na promieniu (systematyczne
+   * wypełnienie, nie losowe próbkowanie punktów) — dlatego wynik jest
+   * z definicji szczelny, bez dziur.
    */
-  carveRing(centerX: number, centerY: number, innerRadius: number, outerRadius: number): void {
-    const inner2 = innerRadius * innerRadius;
-    const outer2 = outerRadius * outerRadius;
-    const reach = Math.ceil(outerRadius / this.cellSize) + 1;
+  private fillDisc(centerX: number, centerY: number, radius: number, value: number): void {
+    const r2 = radius * radius;
+    const reach = Math.ceil(radius / this.cellSize) + 1;
     const baseCx = Math.floor(centerX / this.cellSize);
     const baseCy = Math.floor(centerY / this.cellSize);
 
@@ -114,10 +114,110 @@ export class TerrainGrid {
         const { x, y } = this.cellCenter(cx, cy);
         const dx = wrapDelta(x - centerX, this.worldSize);
         const dy = wrapDelta(y - centerY, this.worldSize);
-        const d2 = dx * dx + dy * dy;
-        if (d2 >= inner2 && d2 <= outer2) {
-          this.set(cx, cy, TILE_ROCK);
+        if (dx * dx + dy * dy <= r2) this.set(cx, cy, value);
+      }
+    }
+  }
+
+  /** Lity dysk skały — masyw góry, ZANIM wyrzeźbi się w nim system tuneli. */
+  carveSolidDisc(centerX: number, centerY: number, radius: number): void {
+    this.fillDisc(centerX, centerY, radius, TILE_ROCK);
+  }
+
+  /**
+   * Rzeźbi organiczny, rozgałęziony system tuneli/komnat wewnątrz litego
+   * masywu (patrz `carveSolidDisc`) — "błądzenie pijaka" (drunkard's walk):
+   * wirtualny kopacz startuje w środku góry, idzie losowo skręcającą
+   * trasą, od czasu do czasu odgałęzia nowego kopacza albo poszerza
+   * korytarz w małą komnatę. To celowo NIE jest okrąg — prawdziwe jaskinie
+   * to sieć korytarzy, nie jedna okrągła sala.
+   *
+   * Trasa jest trzymana we współrzędnych WZGLĘDEM środka (nie świata) przez
+   * cały spacer, żeby zawijanie świata (torus) nie komplikowało arytmetyki
+   * kroku — zawijamy dopiero przy właściwym rzeźbieniu komórek.
+   *
+   * Kluczowy niezmiennik: żaden wykuty fragment (łącznie z promieniem
+   * ewentualnej komnaty) nigdy nie sięga zewnętrznej krawędzi masywu —
+   * boundaryRadius jest pomniejszony o promień komnaty WŁAŚNIE po to, żeby
+   * to zagwarantować niezależnie od tego, jak akurat poprowadzi błądzenie.
+   * Dzięki temu jaskinia zawsze zostaje szczelnie zamknięta w masywie —
+   * zweryfikowane osobnym probe (flood-fill nigdy nie ucieka na zewnątrz).
+   */
+  carveTunnelNetwork(
+    centerX: number,
+    centerY: number,
+    rng: Rng,
+    opts: {
+      /** Kroków głównego kopacza (odgałęzienia dostają ułamek pozostałych). */
+      maxSteps: number;
+      /** Losowy skręt (radiany) dodawany do kierunku po każdym kroku. */
+      turnRadians: number;
+      /** Szansa na odgałęzienie nowego kopacza przy danym kroku. */
+      branchChance: number;
+      /** Twardy limit łącznej liczby odgałęzień (chroni przed eksplozją). */
+      maxBranches: number;
+      /** Szansa na poszerzenie bieżącego miejsca w małą komnatę. */
+      chamberChance: number;
+      /** Promień masywu, w którym mieści się cały system (patrz `carveSolidDisc`). */
+      mountainRadius: number;
+      /** Zapas litej skały, który MUSI pozostać między tunelem a krawędzią masywu. */
+      marginToEdge: number;
+    },
+  ): void {
+    const tunnelRadius = this.cellSize * 0.6;
+    const chamberRadius = this.cellSize * 1.3;
+    // Środek żadnego wykutego kawałka (tunel ani komnata) nie może wyjść
+    // poza ten promień — z zapasem na promień komnaty, żeby SAMO wykucie
+    // (nie tylko środek trasy) zawsze zmieściło się w masywie.
+    const boundaryRadius = Math.max(
+      tunnelRadius + 1,
+      opts.mountainRadius - opts.marginToEdge - chamberRadius,
+    );
+
+    interface Walker {
+      ox: number;
+      oy: number;
+      angle: number;
+      stepsLeft: number;
+    }
+    const pending: Walker[] = [
+      { ox: 0, oy: 0, angle: rng.range(0, TAU), stepsLeft: opts.maxSteps },
+    ];
+    let branchesSpawned = 0;
+
+    while (pending.length > 0) {
+      const w = pending.pop()!;
+      while (w.stepsLeft > 0) {
+        w.stepsLeft--;
+        const worldX = wrap(centerX + w.ox, this.worldSize);
+        const worldY = wrap(centerY + w.oy, this.worldSize);
+        this.fillDisc(worldX, worldY, tunnelRadius, TILE_EMPTY);
+        if (rng.chance(opts.chamberChance)) {
+          this.fillDisc(worldX, worldY, chamberRadius, TILE_EMPTY);
         }
+
+        if (branchesSpawned < opts.maxBranches && w.stepsLeft > 5 && rng.chance(opts.branchChance)) {
+          branchesSpawned++;
+          const turn = (rng.chance(0.5) ? 1 : -1) * (Math.PI / 2 + rng.symmetric(0.4));
+          pending.push({
+            ox: w.ox,
+            oy: w.oy,
+            angle: w.angle + turn,
+            stepsLeft: Math.floor(w.stepsLeft * 0.6),
+          });
+        }
+
+        w.angle += rng.symmetric(opts.turnRadians);
+        let nox = w.ox + Math.cos(w.angle) * this.cellSize;
+        let noy = w.oy + Math.sin(w.angle) * this.cellSize;
+        if (Math.hypot(nox, noy) > boundaryRadius) {
+          // Zawróć w stronę środka zamiast wyjść poza bezpieczny promień.
+          w.angle = Math.atan2(-noy, -nox) + rng.symmetric(0.3);
+          nox = w.ox + Math.cos(w.angle) * this.cellSize;
+          noy = w.oy + Math.sin(w.angle) * this.cellSize;
+        }
+        w.ox = nox;
+        w.oy = noy;
       }
     }
   }

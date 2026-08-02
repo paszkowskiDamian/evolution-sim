@@ -55,12 +55,12 @@ interface FoodCluster {
 }
 
 /**
- * Formacja górska: nieruchomy środek pierścienia skalnego wyrzeźbionego
- * w `World.terrain` (patrz `TerrainGrid.carveRing`), z pustym wnętrzem —
- * jaskinią. W przeciwieństwie do płatów jedzenia góry NIE dryfują — to
- * trwała rzeźba terenu, nie zasób. Sam obiekt trzyma tylko środek — kształt
- * ściany żyje wyłącznie w siatce terenu, którą kopanie/budowanie może
- * trwale zmienić.
+ * Formacja górska: nieruchomy środek litego masywu skały z wyrzeźbioną
+ * wewnątrz siecią tuneli (patrz `TerrainGrid.carveSolidDisc` /
+ * `carveTunnelNetwork`). W przeciwieństwie do płatów jedzenia góry NIE
+ * dryfują — to trwała rzeźba terenu, nie zasób. Sam obiekt trzyma tylko
+ * środek — kształt masywu i tuneli żyje wyłącznie w siatce terenu, którą
+ * kopanie/budowanie może trwale zmienić.
  */
 interface Mountain {
   x: number;
@@ -214,17 +214,37 @@ export class World {
     }
 
     // Góry są nieruchome — generowane raz, w przeciwieństwie do płatów
-    // jedzenia nie mają własnej dynamiki dryfu. Kształt ściany żyje w
-    // `terrain` (siatka), wyrzeźbiony systematycznym wypełnieniem komórek —
-    // stąd bez szczelin, w przeciwieństwie do dawnego losowego rozrzutu
-    // kamieni-przedmiotów.
+    // jedzenia nie mają własnej dynamiki dryfu. Każda to LITY masyw skały
+    // (carveSolidDisc), w którym dopiero potem "błądzenie pijaka"
+    // (carveTunnelNetwork) rzeźbi rozgałęzioną, organiczną sieć tuneli —
+    // nie jedną okrągłą salę. Oba kroki są systematycznym wypełnieniem
+    // komórek (nie losowym rozrzutem punktów), więc wynik jest szczelny —
+    // bez szczelin, przez które dałoby się przejść bez kopania.
+    //
+    // DWA OSOBNE przebiegi (najpierw wszystkie masywy, potem wszystkie
+    // tunele) są konieczne: przy losowych środkach gór sąsiednie masywy
+    // czasem zachodzą na siebie (10 gór na mapie 3000x3000 — to się zdarza
+    // regularnie, nie w rzadkim przypadku brzegowym). Gdyby tunel jednej
+    // góry był rzeźbiony PRZED wykuciem masywu kolejnej, późniejszy lity
+    // dysk mógłby zamurować z powrotem już wykuty korytarz sąsiada.
     this.terrain.clear();
     this.mountains = [];
     for (let i = 0; i < this.config.mountainCount; i++) {
       const x = this.foodRng.range(0, this.config.worldSize);
       const y = this.foodRng.range(0, this.config.worldSize);
       this.mountains.push({ x, y });
-      this.terrain.carveRing(x, y, this.config.mountainInnerRadius, this.config.mountainOuterRadius);
+      this.terrain.carveSolidDisc(x, y, this.config.mountainRadius);
+    }
+    for (const m of this.mountains) {
+      this.terrain.carveTunnelNetwork(m.x, m.y, this.foodRng, {
+        maxSteps: this.config.tunnelSteps,
+        turnRadians: this.config.tunnelTurnAngle,
+        branchChance: this.config.tunnelBranchChance,
+        maxBranches: this.config.tunnelMaxBranches,
+        chamberChance: this.config.tunnelChamberChance,
+        mountainRadius: this.config.mountainRadius,
+        marginToEdge: this.config.tunnelMarginToEdge,
+      });
     }
 
     // Luźne kamienie NIE są zasiewane na starcie — powstają wyłącznie
@@ -317,38 +337,25 @@ export class World {
   // -------------------------------------------------------------- jedzenie
 
   /**
-   * Jedzenie pojawia się w dryfujących płatach, nie równomiernie — to tworzy
-   * gradient, w którym w ogóle opłaca się cokolwiek szukać. Ułamek
-   * `caveFoodFraction` trafia zamiast tego do wnętrza losowej góry —
-   * jedzenie "za ścianą", które wymaga przekopania się do jaskini.
+   * Jedzenie pojawia się w dryfujących płatach, nie równomiernie — to
+   * tworzy gradient, w którym w ogóle opłaca się cokolwiek szukać. Jedzenie
+   * NIGDY nie ląduje w schronieniu (patrz `isInShelter`) — jaskinie i
+   * zbudowane pomieszczenia mają zostać wyłącznie bezpieczną kryjówką
+   * (bonus metaboliczny), a nie dodatkowo skarbnicą jedzenia.
    *
    * Płaty jedzenia są losowo rozrzucone PO CAŁEJ mapie, niezależnie od tego,
    * gdzie stoją góry — promień płata (`foodClusterRadius`, 220) jest
    * większy niż typowa góra, więc płat regularnie zachodzi na fragment
-   * ściany. Bez sprawdzenia terenu próbkowanie punktu wewnątrz płata mogłoby
+   * masywu. Bez sprawdzenia terenu próbkowanie punktu wewnątrz płata mogłoby
    * (i realnie potrafiło) wylądować NA litej komórce — jedzenie "rosnące"
    * w środku skały. Próbujemy do `MAX_ATTEMPTS` razy, odrzucając trafienia
-   * w ścianę; przy typowych rozmiarach płatów/gór prawie zawsze wystarcza
-   * pierwsza próba.
+   * w ścianę LUB w schronienie; przy typowych rozmiarach płatów/gór prawie
+   * zawsze wystarcza pierwsza próba.
    */
   spawnFood(): number {
     if (this.food.isFull) return -1;
     const cfg = this.config;
     const MAX_ATTEMPTS = 20;
-
-    if (this.mountains.length > 0 && this.foodRng.chance(cfg.caveFoodFraction)) {
-      const cave = this.mountains[this.foodRng.int(this.mountains.length)];
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        const angle = this.foodRng.range(0, TAU);
-        // *0.85 trzyma jedzenie z dala od samej ściany skalnej, bezpiecznie
-        // wewnątrz pustego wnętrza jaskini.
-        const dist = Math.sqrt(this.foodRng.next()) * cfg.mountainInnerRadius * 0.85;
-        const x = wrap(cave.x + Math.cos(angle) * dist, cfg.worldSize);
-        const y = wrap(cave.y + Math.sin(angle) * dist, cfg.worldSize);
-        if (!this.terrain.isSolidAt(x, y)) return this.food.spawn(x, y);
-      }
-      return -1;
-    }
 
     const cluster = this.clusters[this.foodRng.int(this.clusters.length)];
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -357,7 +364,7 @@ export class World {
       const dist = Math.sqrt(this.foodRng.next()) * cfg.foodClusterRadius;
       const x = wrap(cluster.x + Math.cos(angle) * dist, cfg.worldSize);
       const y = wrap(cluster.y + Math.sin(angle) * dist, cfg.worldSize);
-      if (!this.terrain.isSolidAt(x, y)) return this.food.spawn(x, y);
+      if (!this.terrain.isSolidAt(x, y) && !this.isInShelter(x, y)) return this.food.spawn(x, y);
     }
     return -1;
   }
