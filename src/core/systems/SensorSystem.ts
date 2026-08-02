@@ -3,6 +3,7 @@ import type { World } from '../world/world';
 import { makeNearestResult, queryNearest } from '../utils/spatialHash';
 // queryNearest zostaje dla jedzenia; sąsiadów liczymy jednym własnym przejściem.
 import { normalizeAngle, clamp } from '../utils/math';
+import { FOOD_TYPE } from '../world/items';
 
 /**
  * Zbiera wejścia sieci neuronowej każdego agenta.
@@ -141,6 +142,9 @@ export class SensorSystem implements System {
         input[19] = 0;
         input[20] = 0;
       }
+
+      // --- co niosę (rozróżnienie w obrębie "niosę cokolwiek" z input[12]) ---
+      input[21] = a.carriedItemType === FOOD_TYPE ? 1 : -1;
     }
   }
 }

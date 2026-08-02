@@ -11,6 +11,7 @@ import {
   type SpriteTextures,
 } from '../sprites/textures';
 import { hslToRgb, clamp } from '../../core/utils/math';
+import { ROCK_TYPE, FOOD_TYPE } from '../../core/world/items';
 
 /**
  * Renderer.
@@ -164,6 +165,28 @@ export class PixiRenderer {
       sprite.scale.set(scale);
       sprite.x = food.xs[i];
       sprite.y = food.ys[i];
+      sprite.alpha = 1;
+      used++;
+    }
+
+    // Jedzenie niesione przez agentów — usunięte z FoodField przy
+    // podniesieniu, więc rysujemy je z pozycji agenta, lekko za nim.
+    for (const a of sim.world.agents) {
+      if (a.carriedItemType !== FOOD_TYPE) continue;
+      let sprite = this.foodPool[used];
+      if (!sprite) {
+        sprite = new Sprite(tex.food);
+        sprite.anchor.set(0.5);
+        sprite.tint = 0x2f7d4f;
+        this.foodLayer.addChild(sprite);
+        this.foodPool[used] = sprite;
+      }
+      sprite.visible = true;
+      sprite.scale.set(scale);
+      const behind = a.phenotype.radius + radius * 0.6;
+      sprite.x = a.x - Math.cos(a.heading) * behind;
+      sprite.y = a.y - Math.sin(a.heading) * behind;
+      sprite.alpha = 0.85;
       used++;
     }
 
@@ -205,8 +228,9 @@ export class PixiRenderer {
 
     // Kamienie niesione przez agentów — usunięte z ItemField, więc
     // rysujemy je z pozycji agenta, lekko za nim (wzdłuż -heading).
+    // Niesione JEDZENIE rysuje drawFood(), nie tutaj.
     for (const a of sim.world.agents) {
-      if (a.carriedItemType < 0) continue;
+      if (a.carriedItemType !== ROCK_TYPE) continue;
       const sprite = nextSprite();
       const behind = a.phenotype.radius + radius * 0.6;
       sprite.x = a.x - Math.cos(a.heading) * behind;

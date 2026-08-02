@@ -1,5 +1,13 @@
-/** Typ przedmiotu — dziś tylko kamień, kolumna istnieje pod przyszłą wariację. */
+/**
+ * Typ przedmiotu w EKWIPUNKU agenta (Agent.carriedItemType) — nie w tym
+ * polu. Kamienie fizycznie żyją w `ItemField` (ta klasa), jedzenie
+ * w `FoodField` — to dwa osobne pola, bo mają zupełnie inną semantykę
+ * (kamień jest bryłą, jedzenie samo znika przy dotyku). Wspólny jest
+ * wyłącznie jednosłotowy ekwipunek: CarrySystem umie podnieść i odłożyć
+ * OBA typy tym samym mechanizmem, więc obie stałe żyją razem tutaj.
+ */
 export const ROCK_TYPE = 0;
+export const FOOD_TYPE = 1;
 
 /**
  * Pole przenoszalnych przedmiotów (kamienie i przyszłe warianty).

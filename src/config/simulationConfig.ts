@@ -168,11 +168,13 @@ export const defaultConfig: SimulationConfig = {
   foodClusterDriftSpeed: 2.0,
   foodClusterRedirectChance: 0.006,
 
-  // Podniesione z 40: kamienie mają teraz fizyczną obecność (patrz
-  // RockCollisionSystem) i są jedynym obiektem do przenoszenia — przy
-  // 40 na mapie 3000x3000 spotkanie jednego jest rzadkością, więc nie ma
-  // czego celowo szukać ani przesuwać. Więcej kamieni = więcej okazji.
-  rockCount: 150,
+  // Znacząco podniesione (150 -> 1500): przy 150 na mapie 3000x3000
+  // średni odstęp między kamieniami (~245 jednostek) jest porównywalny
+  // z promieniem widzenia (260) — kamień to rzadkość, nie teren. Przy
+  // 1500 średni odstęp spada do ~77 jednostek, więc agent ma zwykle
+  // kilkanaście kamieni w polu widzenia naraz — realna, gęsta rzeźba
+  // terenu do omijania, a nie pojedyncze osobliwości.
+  rockCount: 1500,
   rockRespawnRate: 0,
   rockRadius: 5,
   pickupRange: 6,
