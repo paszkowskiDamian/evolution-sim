@@ -41,7 +41,11 @@ export class GpuEnergySystem implements System {
     const device = this.ctx.device;
     const n = alive.length;
     const terrain = world.terrain;
-    const shelterCells = terrain.getShelterCells(cfg.shelterMaxCells);
+    const shelterCells = terrain.getShelterCells(
+      cfg.shelterExteriorMinCells,
+      cfg.shelterMinDepth,
+      cfg.shelterHeatLeakRadius,
+    );
     const refComplexity = referenceBrainComplexity(cfg);
     const pipeline = this.ensurePipeline(device);
 

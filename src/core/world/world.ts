@@ -437,7 +437,13 @@ export class World {
    * przypadku dla gór.
    */
   isInShelter(x: number, y: number): boolean {
-    return this.terrain.isShelterAt(x, y, this.config.shelterMaxCells);
+    return this.terrain.isShelterAt(
+      x,
+      y,
+      this.config.shelterExteriorMinCells,
+      this.config.shelterMinDepth,
+      this.config.shelterHeatLeakRadius,
+    );
   }
 
   getMountains(): ReadonlyArray<{ x: number; y: number }> {

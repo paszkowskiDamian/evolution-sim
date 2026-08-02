@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { SimulationConfig } from '../../config/simulationConfig';
 import type { EditTool, GpuStatus } from '../useSimulation';
 
@@ -69,6 +69,47 @@ const TUNABLE: Array<{
   { key: 'foodClusterDriftSpeed', label: 'prędkość dryfu klastrów', min: 0, max: 6, step: 0.1 },
   { key: 'overfeedHealthPenalty', label: 'kara za przejedzenie', min: 0, max: 2, step: 0.05 },
 ];
+
+// Podzielone RAZ, na starcie modułu — samo zestawienie TUNABLE się nie
+// zmienia w czasie działania aplikacji, więc nie ma sensu filtrować co render.
+const LIVE_TUNABLE = TUNABLE.filter((t) => !t.restart);
+const RESTART_TUNABLE = TUNABLE.filter((t) => t.restart);
+
+function TunableSlider({
+  t,
+  value,
+  setDraft,
+  config,
+}: {
+  t: (typeof TUNABLE)[number];
+  value: (key: keyof SimulationConfig) => number;
+  setDraft: Dispatch<SetStateAction<Partial<SimulationConfig>>>;
+  config: SimulationConfig;
+}) {
+  return (
+    <label className="field">
+      <span>
+        {t.label}: <b>{value(t.key)}</b>
+      </span>
+      <input
+        type="range"
+        min={t.min}
+        max={t.max}
+        step={t.step}
+        value={value(t.key)}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          setDraft((d) => ({ ...d, [t.key]: v }));
+          if (!t.restart) {
+            // Parametry "na żywo" wpisujemy prosto do konfiguracji świata:
+            // systemy czytają ją co tick, więc efekt jest natychmiastowy.
+            (config as unknown as Record<string, number>)[t.key as string] = v;
+          }
+        }}
+      />
+    </label>
+  );
+}
 
 const SPEEDS = [1, 2, 5, 10, 25, 100];
 
@@ -166,34 +207,18 @@ export function Controls({
         </p>
       </label>
 
-      <h2>Parametry</h2>
-      <p className="muted small">
-        Suwaki bez gwiazdki działają na żywo. <b>*</b> = wymaga restartu świata.
-      </p>
+      <h2>Parametry na żywo</h2>
+      <p className="muted small">Działają natychmiast, bez restartu świata.</p>
+      {LIVE_TUNABLE.map((t) => (
+        <TunableSlider key={String(t.key)} t={t} value={value} setDraft={setDraft} config={config} />
+      ))}
 
-      {TUNABLE.map((t) => (
-        <label className="field" key={String(t.key)}>
-          <span>
-            {t.label}
-            {t.restart ? ' *' : ''}: <b>{value(t.key)}</b>
-          </span>
-          <input
-            type="range"
-            min={t.min}
-            max={t.max}
-            step={t.step}
-            value={value(t.key)}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setDraft((d) => ({ ...d, [t.key]: v }));
-              if (!t.restart) {
-                // Parametry "na żywo" wpisujemy prosto do konfiguracji świata:
-                // systemy czytają ją co tick, więc efekt jest natychmiastowy.
-                (config as unknown as Record<string, number>)[t.key as string] = v;
-              }
-            }}
-          />
-        </label>
+      <h2>Parametry wymagające restartu</h2>
+      <p className="muted small">
+        Zmiana wchodzi w życie dopiero po kliknięciu „Restart świata” poniżej.
+      </p>
+      {RESTART_TUNABLE.map((t) => (
+        <TunableSlider key={String(t.key)} t={t} value={value} setDraft={setDraft} config={config} />
       ))}
 
       <div className="row-buttons">

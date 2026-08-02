@@ -57,6 +57,14 @@ export const SENSOR_LABELS = [
   'sin(kąt→sygnał)',
   'cos(kąt→sygnał)',
   'głośność sygnału',
+  // Bez tego agent doświadcza WYŁĄCZNIE skutków schronienia (tańszy
+  // metabolizm, szybsza regeneracja — patrz EnergySystem), nigdy samego
+  // faktu bycia w środku — ewolucja mogłaby szukać schronienia jedynie
+  // pośrednio, przez korelacje. "Ciepło" to CIĄGŁA (nie progowana) głębokość
+  // schronienia (patrz TerrainGrid.shelterWarmthAt) — zimno tuż przy/na
+  // zewnątrz, narasta w głąb — gradient łatwiejszy do wspinania ewolucyjnie
+  // niż twarda granica tak/nie.
+  'ciepło',
 ] as const;
 
 export const OUTPUT_LABELS = [
@@ -73,7 +81,7 @@ export const OUTPUT_LABELS = [
   'sygnał',
 ] as const;
 
-export const INPUT_COUNT = SENSOR_LABELS.length; // 29
+export const INPUT_COUNT = SENSOR_LABELS.length; // 30
 export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 7
 
 /** Zdekodowany kształt sieci danego agenta — patrz `decodeBrainShape` w genetics/genome.ts. */

@@ -218,6 +218,19 @@ export class SensorSystem implements System {
         input[27] = 0;
         input[28] = 0;
       }
+
+      // --- "ciepło" — ciągła głębokość schronienia, wycieka na zewnątrz
+      //     przez wejścia (patrz TerrainGrid.shelterWarmthAt) ---
+      input[29] =
+        terrain.shelterWarmthAt(
+          a.x,
+          a.y,
+          cfg.shelterExteriorMinCells,
+          cfg.shelterMinDepth,
+          cfg.shelterHeatLeakRadius,
+        ) *
+          2 -
+        1;
     }
   }
 }

@@ -73,13 +73,30 @@ export interface SimulationConfig {
   /** Zapas litej skały, który musi pozostać między siecią tuneli a krawędzią masywu. */
   tunnelMarginToEdge: number;
   /**
-   * Próg wielkości (w komórkach terenu) rozróżniający "schronienie" (mała,
-   * otoczona ze wszystkich stron kieszonka — jaskinia GÓRSKA albo dowolne
-   * pomieszczenie zbudowane przez agentów) od zwykłego otwartego świata.
-   * Definicja jest czysto topologiczna (spójne składowe pustych komórek —
-   * patrz `TerrainGrid.isShelterAt`), więc działa jednakowo dla obu.
+   * Ile komórek musi mieć spójna pusta składowa, żeby liczyć się jako
+   * "prawdziwie zewnętrzna" (patrz `TerrainGrid.recomputeShelterMap`) —
+   * MUSI być rząd wielkości większe niż jakakolwiek generowana jaskinia,
+   * inaczej duży, ale wciąż w pełni zamknięty pokój błędnie uznałby SAM
+   * SIEBIE za "zewnętrze" i nigdy nie dostałby statusu schronienia.
    */
-  shelterMaxCells: number;
+  shelterExteriorMinCells: number;
+  /**
+   * Ile kroków (komórek terenu) trzeba pokonać od najbliższej komórki
+   * "prawdziwie zewnętrznej", żeby liczyć się jako "wewnątrz". WIĘKSZE niż
+   * szerokość typowego wejścia — inaczej sam próg drzwi już liczyłby się
+   * jako schronienie. Komórki całkowicie odizolowane od otwartego świata
+   * (bez żadnego dostępu) zawsze liczą się jako schronienie, niezależnie od
+   * tej wartości. Patrz `TerrainGrid.isShelterAt`/`shelterWarmthAt`.
+   */
+  shelterMinDepth: number;
+  /**
+   * Ile komórek terenu "ciepło" schronienia wycieka NA ZEWNĄTRZ przez
+   * wejście, gasnąc z odległością (patrz `TerrainGrid.shelterWarmthAt`,
+   * sensor "ciepło"). Bez tego agent poza schronieniem nie miałby żadnego
+   * gradientu do wspinania się w jego stronę — czułby ciepło dopiero
+   * dosłownie na progu.
+   */
+  shelterHeatLeakRadius: number;
   /** Mnożnik regeneracji zdrowia wewnątrz schronienia (bierna korzyść). */
   shelterHealthRegenMultiplier: number;
   /** Mnożnik kosztu metabolizmu wewnątrz schronienia (<1 = taniej tam istnieć). */
@@ -254,11 +271,21 @@ export const defaultConfig: SimulationConfig = {
   tunnelChamberChance: 0.08,
   tunnelMarginToEdge: 25,
   // Naturalna sieć tuneli wychodzi w praktyce na rząd kilkudziesięciu-
-  // -kilkuset komórek (zmierzone probe'em). 120 daje margines na trochę
-  // większe pomieszczenia zbudowane przez agentów, ale jest wciąż o rzędy
-  // wielkości mniejsze niż otwarty świat (siatka 3000x3000 przy
-  // cellSize=25 to 14400 komórek).
-  shelterMaxCells: 120,
+  // -kilkuset komórek (zmierzone probe'em), a ręcznie zbudowane pomieszczenia
+  // rzadko dorównują temu rozmiarowi. 1500 zostawia ogromny margines wobec
+  // OBU tych przypadków, będąc wciąż o rząd wielkości mniejsze niż otwarty
+  // świat (siatka 3000x3000 przy cellSize=25 to 14400 komórek, z czego
+  // większość to nie-góry) — nie da się tego przez przypadek "przekopać".
+  shelterExteriorMinCells: 1500,
+  // 3 komórki (75 jednostek przy cellSize=25) to więcej niż typowe wejście
+  // (1-2 komórki szerokości) — sam próg drzwi nie liczy się jeszcze jako
+  // "wewnątrz", ale nie trzeba iść daleko w głąb korytarza, żeby zacząć
+  // się liczyć.
+  shelterMinDepth: 3,
+  // 6 komórek (150 jednostek) — porównywalne z `wallSenseRadius` (140), więc
+  // agent zaczyna wyczuwać wejście mniej więcej wtedy, gdy w ogóle zaczyna
+  // wyczuwać samą ścianę, nie wcześniej i nie znacząco później.
+  shelterHeatLeakRadius: 6,
   shelterHealthRegenMultiplier: 3,
   shelterMetabolismDiscount: 0.6,
   wallSenseRadius: 140,
