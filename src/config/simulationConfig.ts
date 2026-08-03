@@ -221,15 +221,23 @@ export const defaultConfig: SimulationConfig = {
   // Jeśli symulacja w niego uderza, to znaczy, że świat jest za bogaty
   // i selekcja przestała działać — wtedy zmniejsz `foodSpawnRate`.
   maxPopulation: 2500,
-  // WYŁĄCZONE domyślnie (patrz PopulationGuardSystem: `minPopulation <= 0`
-  // = system nieaktywny). Dosiewanie klonów ostatnich ocalałych, gdy
-  // populacja jest niewielka ale wciąż żywa, wygląda jak "jeden agent
-  // płodzi kolejnego samego siebie" — poprawne dla ZAPOBIEGANIA wymarciu,
-  // ale mylące jako domyślne zachowanie. Całkowite wymarcie jest teraz
-  // dozwolonym wynikiem eksperymentu, nie czymś, czemu silnik zapobiega
-  // po cichu. Włącz z powrotem (np. 60-80) suwakiem w UI, jeśli zależy Ci
-  // na twardej gwarancji przetrwania świata.
-  minPopulation: 0,
+  // Rozmnażanie płciowe ma efekt Allee: poniżej pewnej gęstości partnerzy
+  // przestają się w ogóle spotykać (wzrok + matingRange na mapie 3000x3000
+  // to lokalne, nie globalne wyszukiwanie) — a przy garstce ocalałych łatwo
+  // też o czysty przypadek "wszyscy tej samej płci". Oba to ZAPADNIĘCIA BEZ
+  // POWROTU: populacja poniżej progu nigdy się nie odbuduje sama, niezależnie
+  // od tego, jak dobre są genomy (zmierzone probe'em: nawet w pełni
+  // wyewoluowany genom kolapsuje do zera przy minPopulation=0 — narodziny
+  // płciowe zatrzymują się na dobre, zanim ktokolwiek umrze z tego powodu).
+  //
+  // 20 to celowo MAŁO (nie dawne 80, które odpalało się bez przerwy i
+  // klonowało populację zamiast dać jej się rozmnażać naprawdę) — próg
+  // rzadkiej awaryjnej interwencji, nie stałej podpórki: przy zdrowej
+  // populacji siedzącej wyraźnie powyżej 20 system w ogóle nie działa,
+  // uruchamia się wyłącznie żeby złapać populację TUŻ przed nieodwracalnym
+  // zapadnięciem. `0` nadal jest dostępne (suwakiem w UI) dla kogoś, kto
+  // świadomie chce dopuścić prawdziwe wymarcie jako możliwy wynik.
+  minPopulation: 20,
 
   // Przyrost jedzenia wyznacza pojemność środowiska. Zamierzenie skąpe —
   // presja na znalezienie i UTRZYMANIE dostępu do jedzenia (a nie tylko
