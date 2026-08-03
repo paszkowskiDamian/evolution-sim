@@ -1,8 +1,8 @@
-import { Application, Container, Graphics, Sprite } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
 import type { Simulation } from '../../core/simulation/simulation';
 import { Camera } from '../camera/camera';
 import {
-  createTextures,
+  loadSpriteTextures,
   agentScaleFor,
   foodScaleFor,
   rockScaleFor,
@@ -52,14 +52,21 @@ interface BirthSparkle {
   startTime: number;
 }
 
+interface AgentDisplay {
+  root: Container;
+  body: Sprite;
+  details: Sprite;
+}
+
 export class PixiRenderer {
   readonly camera = new Camera();
   private app: Application | null = null;
   private textures: SpriteTextures | null = null;
 
   private worldLayer = new Container();
+  private ground: TilingSprite | null = null;
   private caveLayer = new Graphics();
-  private terrainLayer = new Graphics();
+  private terrainLayer = new Container();
   private foodLayer = new Container();
   private rockLayer = new Container();
   private agentLayer = new Container();
@@ -70,7 +77,8 @@ export class PixiRenderer {
 
   private foodPool: Sprite[] = [];
   private rockPool: Sprite[] = [];
-  private agentPool: Sprite[] = [];
+  private terrainPool: Sprite[] = [];
+  private agentPool: AgentDisplay[] = [];
   private combatRings: CombatRing[] = [];
   private birthSparkles: BirthSparkle[] = [];
 
@@ -93,12 +101,19 @@ export class PixiRenderer {
       app.destroy(true);
       return;
     }
+    const textures = await loadSpriteTextures();
+    if (this.destroyed) {
+      app.destroy(true);
+      return;
+    }
     this.app = app;
+    this.textures = textures;
     host.appendChild(app.canvas);
 
-    this.textures = createTextures(app.renderer);
+    this.ground = new TilingSprite({ texture: textures.grass, width: 1, height: 1 });
+    this.ground.roundPixels = true;
 
-    this.worldLayer.addChild(this.border);
+    this.worldLayer.addChild(this.ground);
     this.worldLayer.addChild(this.caveLayer);
     this.worldLayer.addChild(this.terrainLayer);
     this.worldLayer.addChild(this.foodLayer);
@@ -107,6 +122,7 @@ export class PixiRenderer {
     this.worldLayer.addChild(this.combatLayer);
     this.worldLayer.addChild(this.birthLayer);
     this.worldLayer.addChild(this.overlay);
+    this.worldLayer.addChild(this.border);
     app.stage.addChild(this.worldLayer);
 
     // Renderer sam nie animuje — pętlę prowadzi warstwa aplikacji.
@@ -144,6 +160,7 @@ export class PixiRenderer {
       height / 2 - this.camera.y * z,
     );
 
+    this.drawGround(sim);
     this.drawBorder(sim);
     this.drawCaves(sim);
     this.drawTerrain(sim);
@@ -155,6 +172,18 @@ export class PixiRenderer {
     this.drawOverlay(sim);
 
     app.renderer.render(app.stage);
+  }
+
+  private drawGround(sim: Simulation): void {
+    const ground = this.ground;
+    if (!ground) return;
+    const size = sim.config.worldSize;
+    ground.width = size;
+    ground.height = size;
+    // One generated grass repeat spans roughly eight terrain cells; this keeps
+    // the source detail visible without turning its motifs into a tight grid.
+    const tileScale = (sim.world.terrain.cellSize * 8) / this.textures!.grass.width;
+    ground.tileScale.set(tileScale);
   }
 
   private drawBorder(sim: Simulation): void {
@@ -199,29 +228,42 @@ export class PixiRenderer {
   }
 
   /**
-   * Teren: siatka litych komórek (ściany gór, plus cokolwiek dobudowane —
-   * patrz `core/world/terrain.ts` i `CarrySystem.maybeBuild`). Rysowane jako
-   * proste kwadraty zamiast pojedynczych sprite'ów kamieni — to WŁAŚNIE ta
-   * zmiana (siatka zamiast losowego rozrzutu) usuwa szczeliny, przez które
-   * agent mógł dawniej przejść przez "ścianę".
+   * Teren nadal jest szczelną siatką core; bitmapowe kafle są wyłącznie jej
+   * widokiem. Pula zachowuje obiekty Pixi między klatkami i zmianami ścian.
    */
   private drawTerrain(sim: Simulation): void {
-    const g = this.terrainLayer;
-    g.clear();
     const terrain = sim.world.terrain;
     const cellSize = terrain.cellSize;
     const cols = terrain.cols;
     const cells = terrain.cells;
-    const lw = Math.max(0.5, 1 / Math.max(this.camera.zoom, 0.0001));
+    let used = 0;
 
     for (let cy = 0; cy < cols; cy++) {
       const rowBase = cy * cols;
       for (let cx = 0; cx < cols; cx++) {
         if (cells[rowBase + cx] !== TILE_ROCK) continue;
-        g.rect(cx * cellSize, cy * cellSize, cellSize, cellSize);
+        let sprite = this.terrainPool[used];
+        if (!sprite) {
+          sprite = new Sprite(this.textures!.stone);
+          sprite.anchor.set(0.5);
+          sprite.roundPixels = true;
+          this.terrainLayer.addChild(sprite);
+          this.terrainPool[used] = sprite;
+        }
+        sprite.visible = true;
+        sprite.x = (cx + 0.5) * cellSize;
+        sprite.y = (cy + 0.5) * cellSize;
+        // Tiny overlap prevents sampling seams while collision remains exactly
+        // the core cell grid.
+        sprite.width = cellSize + 0.5;
+        sprite.height = cellSize + 0.5;
+        used++;
       }
     }
-    g.fill({ color: 0x7a7f8c }).stroke({ width: lw, color: 0x40444e, alpha: 0.7 });
+
+    for (let i = used; i < this.terrainPool.length; i++) {
+      this.terrainPool[i].visible = false;
+    }
   }
 
   private drawFood(sim: Simulation): void {
@@ -239,8 +281,7 @@ export class PixiRenderer {
       if (!sprite) {
         sprite = new Sprite(tex.food);
         sprite.anchor.set(0.5);
-        // Jedzenie celowo przygaszone — agenci mają być tym, co przyciąga wzrok.
-        sprite.tint = 0x2f7d4f;
+        sprite.roundPixels = true;
         this.foodLayer.addChild(sprite);
         this.foodPool[used] = sprite;
       }
@@ -263,7 +304,7 @@ export class PixiRenderer {
         if (!sprite) {
           sprite = new Sprite(tex.food);
           sprite.anchor.set(0.5);
-          sprite.tint = 0x2f7d4f;
+          sprite.roundPixels = true;
           this.foodLayer.addChild(sprite);
           this.foodPool[used] = sprite;
         }
@@ -294,7 +335,7 @@ export class PixiRenderer {
       if (!sprite) {
         sprite = new Sprite(tex.rock);
         sprite.anchor.set(0.5);
-        sprite.tint = 0x8a8f9c;
+        sprite.roundPixels = true;
         this.rockLayer.addChild(sprite);
         this.rockPool[used] = sprite;
       }
@@ -339,13 +380,21 @@ export class PixiRenderer {
     let used = 0;
 
     for (const a of agents) {
-      let sprite = this.agentPool[used];
-      if (!sprite) {
-        sprite = new Sprite(tex.agent);
-        sprite.anchor.set(AGENT_ANCHOR_X, AGENT_ANCHOR_Y);
-        this.agentLayer.addChild(sprite);
-        this.agentPool[used] = sprite;
+      let display = this.agentPool[used];
+      if (!display) {
+        const root = new Container();
+        const body = new Sprite(tex.agentBody);
+        const details = new Sprite(tex.agentDetails);
+        body.anchor.set(AGENT_ANCHOR_X, AGENT_ANCHOR_Y);
+        details.anchor.set(AGENT_ANCHOR_X, AGENT_ANCHOR_Y);
+        body.roundPixels = true;
+        details.roundPixels = true;
+        root.addChild(body, details);
+        this.agentLayer.addChild(root);
+        display = { root, body, details };
+        this.agentPool[used] = display;
       }
+      const sprite = display.root;
       sprite.visible = true;
       sprite.x = a.x;
       sprite.y = a.y;
@@ -354,14 +403,19 @@ export class PixiRenderer {
         agentScaleFor(Math.max(a.phenotype.radius, MIN_AGENT_PX / this.camera.zoom)),
       );
       // Barwa = gen (widać linie rodowe), jasność = energia (widać kondycję).
-      const lightness = 0.28 + 0.42 * clamp(a.energy / maxEnergy, 0, 1);
-      sprite.tint = hslToRgb(a.phenotype.hue, 0.72, lightness);
+      const energy = clamp(a.energy / maxEnergy, 0, 1);
+      const lightness = 0.28 + 0.42 * energy;
+      display.body.tint = hslToRgb(a.phenotype.hue, 0.72, lightness);
+      // Neutral tint dims details with energy but never shifts the white eye,
+      // highlight and limb art into the phenotype hue.
+      const detailLevel = Math.round((0.65 + 0.35 * energy) * 255);
+      display.details.tint = (detailLevel << 16) | (detailLevel << 8) | detailLevel;
       sprite.alpha = a.id === this.selectedId ? 1 : 0.95;
       used++;
     }
 
     for (let i = used; i < this.agentPool.length; i++) {
-      this.agentPool[i].visible = false;
+      this.agentPool[i].root.visible = false;
     }
   }
 
@@ -476,12 +530,18 @@ export class PixiRenderer {
     this.destroyed = true;
     this.foodPool = [];
     this.rockPool = [];
+    this.terrainPool = [];
     this.agentPool = [];
     this.combatRings = [];
     this.birthSparkles = [];
     if (this.app) {
-      this.app.destroy(true, { children: true, texture: true });
+      // Asset textures are owned by Pixi's global cache and may be reused by
+      // a later mount (notably React StrictMode), so destroy display objects
+      // without invalidating the shared bitmap sources.
+      this.app.destroy(true, { children: true });
       this.app = null;
     }
+    this.textures = null;
+    this.ground = null;
   }
 }
