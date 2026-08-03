@@ -64,6 +64,9 @@ const TUNABLE: Array<{
   { key: 'attackRange', label: 'zasięg ataku', min: 1, max: 40, step: 1 },
   { key: 'attackDamageBase', label: 'obrażenia ataku', min: 0, max: 60, step: 1 },
   { key: 'matingRange', label: 'zasięg szukania partnera', min: 1, max: 100, step: 1 },
+  // Wpływa tylko na NOWE narodziny (fenotyp dekodowany raz, przy narodzinach)
+  // — nie zmieni płci już żyjących agentów, ale efekt widać bez restartu.
+  { key: 'genderMaleThreshold', label: 'próg płci (+ = więcej samic)', min: -1, max: 1, step: 0.05 },
   { key: 'speedMaturationTicks', label: 'dojrzewanie prędkości (ticki)', min: 0, max: 3000, step: 50 },
   { key: 'combatMaturationTicks', label: 'dojrzewanie bojowe (ticki)', min: 0, max: 3000, step: 50 },
   { key: 'foodClusterDriftSpeed', label: 'prędkość dryfu klastrów', min: 0, max: 6, step: 0.1 },

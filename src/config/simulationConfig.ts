@@ -175,6 +175,15 @@ export interface SimulationConfig {
   maturityAge: number;
   /** Zasięg szukania partnera przeciwnej płci, względem promienia ciała. */
   matingRange: number;
+  /**
+   * Próg (na ciągłym genie `gender`, zakres ok. -1..1) rozdzielający samce
+   * od samic — patrz `decodePhenotype`. 0 = symetrycznie 50/50. Dodatni
+   * oddaje samicom szerszy fragment zakresu genu (mniej wartości genu
+   * wystarcza, żeby zdecydować "samiec"), więc zwiększa udział samic wśród
+   * NOWYCH narodzin — nie zmienia płci już żyjących agentów, bo fenotyp
+   * jest dekodowany raz, przy narodzinach.
+   */
+  genderMaleThreshold: number;
 
   // --- dojrzewanie fizjologiczne ---
   /** Ułamek maxSpeed dostępny przy wieku 0; narasta do 1.0 w `speedMaturationTicks`. */
@@ -377,6 +386,11 @@ export const defaultConfig: SimulationConfig = {
   // spotkania pewnym, ale daje realną, niezerową szansę, którą ruch
   // (a nie czysty przypadek) może domknąć.
   matingRange: 60,
+  // Dodatni: samice dostają szerszy fragment zakresu genu (-1..1) niż
+  // samce, więc nowe narodziny ciągną w ich stronę bez wymuszania sztywnego
+  // stosunku płci — dryf genetyczny wciąż może to przesunąć dalej, ale
+  // start jest przechylony, nie idealnie symetryczny.
+  genderMaleThreshold: 0.2,
 
   juvenileSpeedFactor: 0.3,
   speedMaturationTicks: 400,
