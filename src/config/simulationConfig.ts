@@ -55,37 +55,50 @@ export interface SimulationConfig {
   /** Ile luźnych kamieni musi trafić na PUSTĄ komórkę, żeby stężała w ścianę. */
   buildRockThreshold: number;
 
-  // --- góry / jaskinie (formacje terenu) ---
-  /** Ile formacji górskich istnieje w świecie. */
-  mountainCount: number;
-  /** Promień litego masywu góry (pełny dysk skały, ZANIM wyrzeźbi się w nim tunele). */
-  mountainRadius: number;
-  /** Kroków głównego kopacza sieci tuneli wewnątrz masywu (patrz `TerrainGrid.carveTunnelNetwork`). */
-  tunnelSteps: number;
-  /** Maks. losowy skręt (radiany) na krok — większe = bardziej kręta trasa. */
-  tunnelTurnAngle: number;
-  /** Szansa na odgałęzienie nowego korytarza przy danym kroku. */
-  tunnelBranchChance: number;
-  /** Twardy limit łącznej liczby odgałęzień na górę. */
-  tunnelMaxBranches: number;
-  /** Szansa na poszerzenie danego miejsca w małą komnatę. */
-  tunnelChamberChance: number;
-  /** Zapas litej skały, który musi pozostać między siecią tuneli a krawędzią masywu. */
-  tunnelMarginToEdge: number;
+  // --- teren (jaskinie/skały) ---
   /**
-   * Próg wielkości (w komórkach terenu) rozróżniający "schronienie" (mała,
-   * otoczona ze wszystkich stron kieszonka — jaskinia GÓRSKA albo dowolne
-   * pomieszczenie zbudowane przez agentów) od zwykłego otwartego świata.
-   * Definicja jest czysto topologiczna (spójne składowe pustych komórek —
-   * patrz `TerrainGrid.isShelterAt`), więc działa jednakowo dla obu.
+   * Prawdopodobieństwo, że komórka jest lita w losowym ziarnie automatu —
+   * klasyczne ~0.45 z algorytmu "4-5 rule" (patrz RogueBasin "Cellular
+   * Automata Method for Generating Random Cave-Like Levels"). To jedyne
+   * miejsce, gdzie wchodzi "przypadek" — reszta kształtu to już
+   * deterministyczna reguła sąsiedztwa, patrz `TerrainGrid.generateCaves`.
    */
-  shelterMaxCells: number;
+  caveFillProbability: number;
+  /** Ile przebiegów reguły większościowej — więcej wygładza mocniej (mniej izolowanych plamek, gładsze ściany), mniej zostawia surowy, poszarpany szum. */
+  caveIterations: number;
+  /** Próg reguły większościowej (sąsiedztwo Moore'a, promień 1, 8 sąsiadów) — komórka lita, gdy ma tylu lub więcej litych sąsiadów. Klasyczna wartość: 5. */
+  caveNeighborThreshold: number;
+  /** Odosobnione grudki skały mniejsze niż tyle komórek są usuwane po automacie — czysto kosmetyczne sprzątanie szumu, 0 = wyłączone. */
+  caveMinRockClusterCells: number;
+  /**
+   * Ile komórek musi mieć spójna pusta składowa, żeby liczyć się jako
+   * "prawdziwie zewnętrzna" (patrz `TerrainGrid.recomputeShelterMap`) —
+   * MUSI być rząd wielkości większe niż jakakolwiek generowana jaskinia,
+   * inaczej duży, ale wciąż w pełni zamknięty pokój błędnie uznałby SAM
+   * SIEBIE za "zewnętrze" i nigdy nie dostałby statusu schronienia.
+   */
+  shelterExteriorMinCells: number;
+  /**
+   * Ile kroków (komórek terenu) trzeba pokonać od najbliższej komórki
+   * "prawdziwie zewnętrznej", żeby liczyć się jako "wewnątrz". WIĘKSZE niż
+   * szerokość typowego wejścia — inaczej sam próg drzwi już liczyłby się
+   * jako schronienie. Komórki całkowicie odizolowane od otwartego świata
+   * (bez żadnego dostępu) zawsze liczą się jako schronienie, niezależnie od
+   * tej wartości. Patrz `TerrainGrid.isShelterAt`/`shelterWarmthAt`.
+   */
+  shelterMinDepth: number;
+  /**
+   * Ile komórek terenu "ciepło" schronienia wycieka NA ZEWNĄTRZ przez
+   * wejście, gasnąc z odległością (patrz `TerrainGrid.shelterWarmthAt`,
+   * sensor "ciepło"). Bez tego agent poza schronieniem nie miałby żadnego
+   * gradientu do wspinania się w jego stronę — czułby ciepło dopiero
+   * dosłownie na progu.
+   */
+  shelterHeatLeakRadius: number;
   /** Mnożnik regeneracji zdrowia wewnątrz schronienia (bierna korzyść). */
   shelterHealthRegenMultiplier: number;
   /** Mnożnik kosztu metabolizmu wewnątrz schronienia (<1 = taniej tam istnieć). */
   shelterMetabolismDiscount: number;
-  /** Zasięg sensora "najbliższa ściana" — niezależny od ewoluowalnego wzroku. */
-  wallSenseRadius: number;
 
   // --- walka ---
   attackRange: number;
@@ -96,6 +109,15 @@ export interface SimulationConfig {
   baseMaxHealth: number;
   /** Bierna regeneracja zdrowia na tick (nie kosztuje energii). */
   healthRegenRate: number;
+
+  // --- sygnalizacja ---
+  /**
+   * Koszt energii ZA TICK, proporcjonalny do głośności wyjścia "sygnał"
+   * (0 przy ciszy, pełny koszt przy głośności 1). Bez tego kosztu ewolucja
+   * zawsze wybrałaby "krzycz na maksa bez przerwy" — kanał sygnałowy
+   * niosłby zero informacji, bo każdy nadawałby stale to samo.
+   */
+  signalEnergyCost: number;
 
   // --- energia ---
   maxEnergy: number;
@@ -137,6 +159,15 @@ export interface SimulationConfig {
   maturityAge: number;
   /** Zasięg szukania partnera przeciwnej płci, względem promienia ciała. */
   matingRange: number;
+  /**
+   * Próg (na ciągłym genie `gender`, zakres ok. -1..1) rozdzielający samce
+   * od samic — patrz `decodePhenotype`. 0 = symetrycznie 50/50. Dodatni
+   * oddaje samicom szerszy fragment zakresu genu (mniej wartości genu
+   * wystarcza, żeby zdecydować "samiec"), więc zwiększa udział samic wśród
+   * NOWYCH narodzin — nie zmienia płci już żyjących agentów, bo fenotyp
+   * jest dekodowany raz, przy narodzinach.
+   */
+  genderMaleThreshold: number;
 
   // --- dojrzewanie fizjologiczne ---
   /** Ułamek maxSpeed dostępny przy wieku 0; narasta do 1.0 w `speedMaturationTicks`. */
@@ -183,12 +214,23 @@ export const defaultConfig: SimulationConfig = {
   // Jeśli symulacja w niego uderza, to znaczy, że świat jest za bogaty
   // i selekcja przestała działać — wtedy zmniejsz `foodSpawnRate`.
   maxPopulation: 2500,
-  // Rozmnażanie płciowe wymaga, żeby DWOJE konkretnych, gotowych osobników
-  // znalazło się blisko siebie naraz — przy dawnym progu (12) na mapie
-  // 3000x3000 to statystycznie prawie nigdy się nie zdarza. Próg musi
-  // być na tyle wysoki, żeby awaryjne dosiewanie w ogóle dawało realną
-  // szansę na spotkanie partnera.
-  minPopulation: 80,
+  // Rozmnażanie płciowe ma efekt Allee: poniżej pewnej gęstości partnerzy
+  // przestają się w ogóle spotykać (wzrok + matingRange na mapie 3000x3000
+  // to lokalne, nie globalne wyszukiwanie) — a przy garstce ocalałych łatwo
+  // też o czysty przypadek "wszyscy tej samej płci". Oba to ZAPADNIĘCIA BEZ
+  // POWROTU: populacja poniżej progu nigdy się nie odbuduje sama, niezależnie
+  // od tego, jak dobre są genomy (zmierzone probe'em: nawet w pełni
+  // wyewoluowany genom kolapsuje do zera przy minPopulation=0 — narodziny
+  // płciowe zatrzymują się na dobre, zanim ktokolwiek umrze z tego powodu).
+  //
+  // 20 to celowo MAŁO (nie dawne 80, które odpalało się bez przerwy i
+  // klonowało populację zamiast dać jej się rozmnażać naprawdę) — próg
+  // rzadkiej awaryjnej interwencji, nie stałej podpórki: przy zdrowej
+  // populacji siedzącej wyraźnie powyżej 20 system w ogóle nie działa,
+  // uruchamia się wyłącznie żeby złapać populację TUŻ przed nieodwracalnym
+  // zapadnięciem. `0` nadal jest dostępne (suwakiem w UI) dla kogoś, kto
+  // świadomie chce dopuścić prawdziwe wymarcie jako możliwy wynik.
+  minPopulation: 20,
 
   // Przyrost jedzenia wyznacza pojemność środowiska. Zamierzenie skąpe —
   // presja na znalezienie i UTRZYMANIE dostępu do jedzenia (a nie tylko
@@ -226,30 +268,38 @@ export const defaultConfig: SimulationConfig = {
   // osiągalne bez gromadzenia ogromnych zapasów, ale nie z jednego rzutu.
   buildRockThreshold: 3,
 
-  // Góra to LITY dysk skały (promień 150), a nie pusty pierścień — dopiero
-  // wewnątrz niego "błądzenie pijaka" wyrzeźbia rozgałęzioną sieć tuneli
-  // (patrz TerrainGrid.carveTunnelNetwork). Wypełnienie siatki jest
-  // z definicji szczelne — bez szczelin, przez które dałoby się przejść
-  // bez kopania — a granica sieci tuneli ma wbudowany zapas
-  // (tunnelMarginToEdge + promień komnaty), więc tunele nigdy nie
-  // przebijają się na zewnątrz masywu same z siebie.
-  mountainCount: 10,
-  mountainRadius: 150,
-  tunnelSteps: 50,
-  tunnelTurnAngle: 0.6,
-  tunnelBranchChance: 0.03,
-  tunnelMaxBranches: 3,
-  tunnelChamberChance: 0.08,
-  tunnelMarginToEdge: 25,
-  // Naturalna sieć tuneli wychodzi w praktyce na rząd kilkudziesięciu-
-  // -kilkuset komórek (zmierzone probe'em). 120 daje margines na trochę
-  // większe pomieszczenia zbudowane przez agentów, ale jest wciąż o rzędy
-  // wielkości mniejsze niż otwarty świat (siatka 3000x3000 przy
-  // cellSize=25 to 14400 komórek).
-  shelterMaxCells: 120,
+  // Cały teren to jeden automat komórkowy (patrz TerrainGrid.generateCaves)
+  // — klasyczna "4-5 rule": losowe ziarno wygładzone kilkoma przebiegami
+  // reguły większościowej (z regułą szerokiego promienia w pierwszych
+  // iteracjach, żeby nie wymrzeć do zera — patrz komentarz w
+  // `generateCaves`), ta sama, dobrze znana technika co w mnóstwie
+  // roguelike'ów. Nie ma pojęcia "góra": ściana czy korytarz wyłaniają się
+  // z reguły sąsiedztwa na całej mapie naraz, nikt ich nie rzeźbi osobno.
+  caveFillProbability: 0.45,
+  caveIterations: 5,
+  caveNeighborThreshold: 5,
+  // Grudki < 6 komórek to niemal zawsze pojedyncze piksele szumu po
+  // automacie, nie sensowne struktury — warte usunięcia bez zmiany
+  // charakteru reszty jaskini.
+  caveMinRockClusterCells: 6,
+  // Naturalna sieć jaskiń wychodzi w praktyce na rząd kilkudziesięciu-
+  // -kilkuset komórek (zmierzone probe'em), a ręcznie zbudowane pomieszczenia
+  // rzadko dorównują temu rozmiarowi. 1500 zostawia ogromny margines wobec
+  // OBU tych przypadków, będąc wciąż o rząd wielkości mniejsze niż otwarty
+  // świat (siatka 3000x3000 przy cellSize=25 to 14400 komórek, z czego
+  // większość to nie-góry) — nie da się tego przez przypadek "przekopać".
+  shelterExteriorMinCells: 1500,
+  // 3 komórki (75 jednostek przy cellSize=25) to więcej niż typowe wejście
+  // (1-2 komórki szerokości) — sam próg drzwi nie liczy się jeszcze jako
+  // "wewnątrz", ale nie trzeba iść daleko w głąb korytarza, żeby zacząć
+  // się liczyć.
+  shelterMinDepth: 3,
+  // 6 komórek (150 jednostek) — porównywalne z zasięgiem stożka widzenia
+  // (ewoluowalny wzrok, domyślnie ~260), więc wyciek ciepła jest wyczuwalny
+  // z sensownej części pola widzenia, nie tylko dosłownie na progu.
+  shelterHeatLeakRadius: 6,
   shelterHealthRegenMultiplier: 3,
   shelterMetabolismDiscount: 0.6,
-  wallSenseRadius: 140,
 
   attackRange: 10,
   attackDamageBase: 18,
@@ -257,6 +307,12 @@ export const defaultConfig: SimulationConfig = {
   attackCooldownTicks: 40,
   baseMaxHealth: 100,
   healthRegenRate: 0.05,
+
+  // 0.03 przy pełnej głośności to ok. 25% baseMetabolism (0.12) — odczuwalne
+  // przy ciągłym nadawaniu (jak reszta kosztów w tym pliku), ale krótkie
+  // "okrzyki" zostają praktycznie darmowe. Bez tego ewolucja nie miałaby
+  // żadnego powodu, żeby kiedykolwiek zamilknąć.
+  signalEnergyCost: 0.03,
 
   maxEnergy: 100,
   startEnergy: 60,
@@ -300,6 +356,11 @@ export const defaultConfig: SimulationConfig = {
   // spotkania pewnym, ale daje realną, niezerową szansę, którą ruch
   // (a nie czysty przypadek) może domknąć.
   matingRange: 60,
+  // Dodatni: samice dostają szerszy fragment zakresu genu (-1..1) niż
+  // samce, więc nowe narodziny ciągną w ich stronę bez wymuszania sztywnego
+  // stosunku płci — dryf genetyczny wciąż może to przesunąć dalej, ale
+  // start jest przechylony, nie idealnie symetryczny.
+  genderMaleThreshold: 0.2,
 
   juvenileSpeedFactor: 0.3,
   speedMaturationTicks: 400,

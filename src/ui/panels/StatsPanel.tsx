@@ -36,6 +36,7 @@ export function StatsPanel({ snapshot }: { snapshot: UiSnapshot }) {
         { label: 'prędkość', color: '#fb923c', values: h.map((s) => s.avgSpeedGene) },
         { label: 'rozmiar', color: '#94a3b8', values: h.map((s) => s.avgSizeGene) },
         { label: 'wzrok /50', color: '#38bdf8', values: h.map((s) => s.avgVisionGene / 50) },
+        { label: 'sygnał ×10', color: '#e879f9', values: h.map((s) => s.avgSignal * 10) },
       ],
     }),
     [h],
@@ -47,6 +48,7 @@ export function StatsPanel({ snapshot }: { snapshot: UiSnapshot }) {
       <div className="stat-grid">
         <Stat label="tick" value={snapshot.tick.toLocaleString('pl-PL')} />
         <Stat label="osobniki" value={snapshot.population} />
+        <Stat label="płeć (Ż/M)" value={`${snapshot.femaleCount} / ${snapshot.maleCount}`} />
         <Stat label="jedzenie" value={snapshot.foodCount} />
         <Stat label="pokolenie" value={snapshot.maxGeneration} />
         <Stat label="śr. wiek" value={snapshot.avgAge.toFixed(0)} />

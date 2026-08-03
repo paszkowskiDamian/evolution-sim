@@ -14,6 +14,8 @@ import { referenceBrainComplexity } from '../neural/network';
  *   - dobry wzrok        -> ~ zasięg widzenia
  *   - niesienie czegoś   -> narzut ROSNĄCY z liczbą niesionych przedmiotów
  *     (patrz `carryMetabolismMultiplier`)
+ *   - sygnalizowanie     -> proporcjonalny do głośności (patrz `signalEnergyCost`,
+ *     inaczej ciągłe nadawanie na maksa byłoby darmowe)
  *
  * Bez tych kosztów ewolucja zawsze wybrałaby "wszystko na maksa"
  * i nie powstałaby żadna specjalizacja. Bez narzutu za niesienie mechanika
@@ -43,12 +45,16 @@ export class EnergySystem implements System {
       const carryFactor = 1 + (cfg.carryMetabolismMultiplier - 1) * a.carriedCount;
       const sheltered = world.isInShelter(a.x, a.y);
       const metabolismFactor = sheltered ? cfg.shelterMetabolismDiscount : 1;
+      // Tylko dodatnia część wyjścia "sygnał" liczy się jako nadawanie —
+      // ta sama konwencja co przy odbiorze w SensorSystem.
+      const loudness = Math.max(0, a.brain.outputs[6]);
 
       const cost =
         (cfg.baseMetabolism +
           cfg.moveCost * a.speed * a.speed +
           cfg.sizeCost * bodyFactor +
-          cfg.brainCost * complexityRatio * (0.5 + visionFactor)) *
+          cfg.brainCost * complexityRatio * (0.5 + visionFactor) +
+          cfg.signalEnergyCost * loudness) *
         p.metabolism *
         carryFactor *
         metabolismFactor;

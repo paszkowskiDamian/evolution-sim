@@ -95,6 +95,7 @@ export class StatisticsSystem implements System {
     let sumSize = 0;
     let sumVision = 0;
     let sumCarrying = 0;
+    let sumSignal = 0;
 
     for (const a of agents) {
       sumAge += a.age;
@@ -105,6 +106,7 @@ export class StatisticsSystem implements System {
       sumSize += a.phenotype.radius;
       sumVision += a.phenotype.visionRadius;
       if (a.carriedCount > 0) sumCarrying++;
+      sumSignal += Math.max(0, a.brain.outputs[6]); // wyjście "sygnał" — patrz SensorSystem/EnergySystem
     }
 
     const sample: StatsSample = {
@@ -129,6 +131,7 @@ export class StatisticsSystem implements System {
       avgSpeedGene: n ? sumSpeed / n : 0,
       avgSizeGene: n ? sumSize / n : 0,
       avgVisionGene: n ? sumVision / n : 0,
+      avgSignal: n ? sumSignal / n : 0,
     };
 
     this.history.push(sample);

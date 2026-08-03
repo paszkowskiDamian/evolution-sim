@@ -21,17 +21,35 @@ import type { SimulationConfig } from '../../config/simulationConfig';
  * agenta) i później tylko nadpisywane.
  */
 
+/**
+ * Stożek widzenia (patrz VISION_CONE_RAYS/VISION_CONE_FOV, SensorSystem) —
+ * JEDYNY sposób, w jaki agent widzi jedzenie, innych agentów, partnerów,
+ * ściany i ciepło. Wcześniej jedzenie/agent/partner miały osobne sensory
+ * "kierunek + bliskość do NAJBLIŻSZEGO, gdziekolwiek dookoła" (360°, bez
+ * przeszkód kątowych) — to ZASTĄPIONO wachlarzem promieni rzucanych przed
+ * siebie (pole widzenia VISION_CONE_FOV, wyśrodkowane na kierunku agenta),
+ * każdy zatrzymywany przez pierwszą literę: ścianę (TerrainGrid.castRay)
+ * ALBO najbliższy widoczny obiekt w swoim kątowym wycinku, którykolwiek
+ * jest bliżej. Agent dosłownie "patrzy przed siebie" — poza polem
+ * widzenia jest ślepy, tak jak w prawdziwym wzroku kierunkowym (z tyłu
+ * zostaje martwe pole, patrz VISION_CONE_FOV).
+ *
+ * Każdy promień niesie TRZY wartości:
+ *   - odległość: 0 (nic w zasięgu) .. 1 (trafienie tuż przy agencie),
+ *   - rodzaj trafienia (skalar, nie one-hot — te same pasma co reszta
+ *     kategorycznych sensorów w tym pliku, np. "płeć"):
+ *       0 = nic (pełny zasięg bez przeszkód), -1 = ściana,
+ *       -0.5 = inny agent tej samej płci (rywal), +0.5 = agent przeciwnej
+ *       płci (potencjalny partner), +1 = jedzenie,
+ *   - ciepło (TerrainGrid.shelterWarmthAt) w punkcie trafienia — agent
+ *     "widzi" gradient schronienia W GŁĘBI pola widzenia, nie tylko we
+ *     własnej pozycji.
+ */
 export const SENSOR_LABELS = [
   'bias',
   'energia',
   'wiek',
   'prędkość',
-  'sin(kąt→jedzenie)',
-  'cos(kąt→jedzenie)',
-  'bliskość jedzenia',
-  'sin(kąt→agent)',
-  'cos(kąt→agent)',
-  'bliskość agenta',
   'zagęszczenie',
   'szum',
   'niosę',
@@ -40,20 +58,83 @@ export const SENSOR_LABELS = [
   'bliskość kamienia',
   'zdrowie',
   'płeć',
-  'sin(kąt→partner)',
-  'cos(kąt→partner)',
-  'bliskość partnera',
   'niosę jedzenie',
-  'sin(kąt→ściana)',
-  'cos(kąt→ściana)',
-  'bliskość ściany',
   'odmienność najbliższego agenta',
+  // --- sygnalizacja (patrz OUTPUT_LABELS "sygnał" + SensorSystem) ---
+  // Agent nie odbiera "znaczenia" — tylko kierunek i głośność najgłośniejszego
+  // WIDOCZNEGO nadawcy w zasięgu wzroku. Co ten kanał zacznie oznaczać
+  // (ostrzeżenie, przywabianie partnera, rekrutacja do jedzenia, a może
+  // fałszywy alarm) jest w całości emergentne — nic w silniku nie narzuca
+  // znaczenia sygnału, tylko jego istnienie.
+  'sin(kąt→sygnał)',
+  'cos(kąt→sygnał)',
+  'głośność sygnału',
+  'stożek[0] odległość',
+  'stożek[0] rodzaj',
+  'stożek[0] ciepło',
+  'stożek[1] odległość',
+  'stożek[1] rodzaj',
+  'stożek[1] ciepło',
+  'stożek[2] odległość',
+  'stożek[2] rodzaj',
+  'stożek[2] ciepło',
+  'stożek[3] odległość',
+  'stożek[3] rodzaj',
+  'stożek[3] ciepło',
+  'stożek[4] odległość',
+  'stożek[4] rodzaj',
+  'stożek[4] ciepło',
+  'stożek[5] odległość',
+  'stożek[5] rodzaj',
+  'stożek[5] ciepło',
+  'stożek[6] odległość',
+  'stożek[6] rodzaj',
+  'stożek[6] ciepło',
+  'stożek[7] odległość',
+  'stożek[7] rodzaj',
+  'stożek[7] ciepło',
+  'stożek[8] odległość',
+  'stożek[8] rodzaj',
+  'stożek[8] ciepło',
+  'stożek[9] odległość',
+  'stożek[9] rodzaj',
+  'stożek[9] ciepło',
+  'stożek[10] odległość',
+  'stożek[10] rodzaj',
+  'stożek[10] ciepło',
 ] as const;
 
-export const OUTPUT_LABELS = ['obrót', 'ruch', 'chęć rozmnażania', 'chwyć/upuść', 'atak', 'jedz'] as const;
+/** Liczba promieni stożka widzenia — stała wewnętrzna (nie config): zmiana
+ *  zmienia layout genomu, więc nie ma sensu wystawiać jej jako suwaka na żywo. */
+export const VISION_CONE_RAYS = 11;
+/** Pole widzenia stożka (radiany), wyśrodkowane na kierunku agenta — 300°,
+ *  zostawia celowe martwe pole 60° z tyłu (podkradanie się od tyłu staje
+ *  się realną taktyką, nie tylko dekoracją). */
+export const VISION_CONE_FOV = (300 * Math.PI) / 180;
 
-export const INPUT_COUNT = SENSOR_LABELS.length; // 26
-export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 6
+/** Pasma skalara "rodzaj" na promieniu stożka — patrz dokumentacja wyżej. */
+export const CONE_TYPE_NOTHING = 0;
+export const CONE_TYPE_WALL = -1;
+export const CONE_TYPE_AGENT_RIVAL = -0.5;
+export const CONE_TYPE_AGENT_MATE = 0.5;
+export const CONE_TYPE_FOOD = 1;
+
+export const OUTPUT_LABELS = [
+  'obrót',
+  'ruch',
+  'chęć rozmnażania',
+  'chwyć/upuść',
+  'atak',
+  'jedz',
+  // Ciągłe (nie progowane) wyjście: dodatnia część = głośność nadawania,
+  // odczytywana przez SensorSystem u innych agentów. NIE jest darmowe —
+  // patrz `signalEnergyCost` w EnergySystem, inaczej ewolucja zawsze
+  // wybrałaby "krzycz na maksa cały czas" i kanał straciłby znaczenie.
+  'sygnał',
+] as const;
+
+export const INPUT_COUNT = SENSOR_LABELS.length; // 50
+export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 7
 
 /** Zdekodowany kształt sieci danego agenta — patrz `decodeBrainShape` w genetics/genome.ts. */
 export interface BrainShape {

@@ -23,6 +23,9 @@ export interface StatsSample {
   avgSpeedGene: number;
   avgSizeGene: number;
   avgVisionGene: number;
+  /** Średnia dodatnia część wyjścia "sygnał" — 0 = populacja milczy, rośnie
+   *  gdy sygnalizowanie zaczyna się ewolucyjnie opłacać. */
+  avgSignal: number;
 }
 
 export interface CumulativeStats {

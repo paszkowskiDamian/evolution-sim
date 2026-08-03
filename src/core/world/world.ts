@@ -54,19 +54,6 @@ interface FoodCluster {
   vy: number;
 }
 
-/**
- * Formacja górska: nieruchomy środek litego masywu skały z wyrzeźbioną
- * wewnątrz siecią tuneli (patrz `TerrainGrid.carveSolidDisc` /
- * `carveTunnelNetwork`). W przeciwieństwie do płatów jedzenia góry NIE
- * dryfują — to trwała rzeźba terenu, nie zasób. Sam obiekt trzyma tylko
- * środek — kształt masywu i tuneli żyje wyłącznie w siatce terenu, którą
- * kopanie/budowanie może trwale zmienić.
- */
-interface Mountain {
-  x: number;
-  y: number;
-}
-
 const LINEAGE_CAPACITY = 4000;
 /** Bufor zdarzeń walki jest drenowany co klatkę przez renderer (pierścienie
  *  trafień) — limit to wyłącznie zabezpieczenie dla biegów headless, gdzie
@@ -166,7 +153,6 @@ export class World {
 
   private nextAgentId = 1;
   private clusters: FoodCluster[] = [];
-  private mountains: Mountain[] = [];
   maxGeneration = 0;
 
   /**
@@ -230,39 +216,18 @@ export class World {
       });
     }
 
-    // Góry są nieruchome — generowane raz, w przeciwieństwie do płatów
-    // jedzenia nie mają własnej dynamiki dryfu. Każda to LITY masyw skały
-    // (carveSolidDisc), w którym dopiero potem "błądzenie pijaka"
-    // (carveTunnelNetwork) rzeźbi rozgałęzioną, organiczną sieć tuneli —
-    // nie jedną okrągłą salę. Oba kroki są systematycznym wypełnieniem
-    // komórek (nie losowym rozrzutem punktów), więc wynik jest szczelny —
-    // bez szczelin, przez które dałoby się przejść bez kopania.
-    //
-    // DWA OSOBNE przebiegi (najpierw wszystkie masywy, potem wszystkie
-    // tunele) są konieczne: przy losowych środkach gór sąsiednie masywy
-    // czasem zachodzą na siebie (10 gór na mapie 3000x3000 — to się zdarza
-    // regularnie, nie w rzadkim przypadku brzegowym). Gdyby tunel jednej
-    // góry był rzeźbiony PRZED wykuciem masywu kolejnej, późniejszy lity
-    // dysk mógłby zamurować z powrotem już wykuty korytarz sąsiada.
+    // Cały teren naraz, jednym automatem komórkowym (generateCaves —
+    // klasyczny, dobrze znany algorytm generowania jaskiń). Nie ma pojęcia
+    // "góra" ani "promień" — ściana czy korytarz wyłaniają się z lokalnej
+    // reguły sąsiedztwa na całej siatce, nikt ich nie rzeźbi ani nie
+    // rysuje z góry.
     this.terrain.clear();
-    this.mountains = [];
-    for (let i = 0; i < this.config.mountainCount; i++) {
-      const x = this.foodRng.range(0, this.config.worldSize);
-      const y = this.foodRng.range(0, this.config.worldSize);
-      this.mountains.push({ x, y });
-      this.terrain.carveSolidDisc(x, y, this.config.mountainRadius);
-    }
-    for (const m of this.mountains) {
-      this.terrain.carveTunnelNetwork(m.x, m.y, this.foodRng, {
-        maxSteps: this.config.tunnelSteps,
-        turnRadians: this.config.tunnelTurnAngle,
-        branchChance: this.config.tunnelBranchChance,
-        maxBranches: this.config.tunnelMaxBranches,
-        chamberChance: this.config.tunnelChamberChance,
-        mountainRadius: this.config.mountainRadius,
-        marginToEdge: this.config.tunnelMarginToEdge,
-      });
-    }
+    this.terrain.generateCaves(this.foodRng, {
+      fillProbability: this.config.caveFillProbability,
+      iterations: this.config.caveIterations,
+      neighborThreshold: this.config.caveNeighborThreshold,
+      minRockClusterCells: this.config.caveMinRockClusterCells,
+    });
 
     // Luźne kamienie NIE są zasiewane na starcie — powstają wyłącznie
     // z kopania ściany (patrz CarrySystem). `items.clear()` powyżej już
@@ -437,11 +402,13 @@ export class World {
    * przypadku dla gór.
    */
   isInShelter(x: number, y: number): boolean {
-    return this.terrain.isShelterAt(x, y, this.config.shelterMaxCells);
-  }
-
-  getMountains(): ReadonlyArray<{ x: number; y: number }> {
-    return this.mountains;
+    return this.terrain.isShelterAt(
+      x,
+      y,
+      this.config.shelterExteriorMinCells,
+      this.config.shelterMinDepth,
+      this.config.shelterHeatLeakRadius,
+    );
   }
 
   // ------------------------------------------------------- ręczna edycja

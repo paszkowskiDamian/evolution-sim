@@ -3,6 +3,7 @@ import { Simulation } from '../core/simulation/simulation';
 import { PixiRenderer } from '../renderer/pixi/PixiRenderer';
 import { defaultConfig, type SimulationConfig } from '../config/simulationConfig';
 import type { AgentView, StatsSample } from '../shared/types';
+import { FEMALE } from '../core/genetics/genome';
 import seedGenomeData from '../config/seedGenome.json';
 
 /**
@@ -26,6 +27,8 @@ const SEED_GENOME = new Float32Array(seedGenomeData.genome);
 export interface UiSnapshot {
   tick: number;
   population: number;
+  femaleCount: number;
+  maleCount: number;
   foodCount: number;
   maxGeneration: number;
   avgAge: number;
@@ -44,6 +47,8 @@ export interface UiSnapshot {
 const EMPTY_SNAPSHOT: UiSnapshot = {
   tick: 0,
   population: 0,
+  femaleCount: 0,
+  maleCount: 0,
   foodCount: 0,
   maxGeneration: 0,
   avgAge: 0,
@@ -168,9 +173,18 @@ export function useSimulation() {
           lastUi = now;
           const stats = current.statistics;
           const last = stats.history[stats.history.length - 1];
+          // Liczone na żywo z bieżącej populacji (nie z próbki historii) —
+          // podział płci ma być dokładnie tym, co widać teraz, nie migawką
+          // sprzed statsInterval ticków.
+          let femaleCount = 0;
+          for (const a of current.world.agents) {
+            if (a.phenotype.gender === FEMALE) femaleCount++;
+          }
           setSnapshot({
             tick: current.tick,
             population: current.world.agents.length,
+            femaleCount,
+            maleCount: current.world.agents.length - femaleCount,
             foodCount: current.world.food.count,
             maxGeneration: current.world.maxGeneration,
             avgAge: last?.avgAge ?? 0,

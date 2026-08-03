@@ -1,10 +1,19 @@
-import { wrap, wrapDelta, TAU } from '../utils/math';
+import { wrap, wrapDelta } from '../utils/math';
 import type { Rng } from '../utils/rng';
 
 /** Pusta komórka — agent porusza się przez nią swobodnie. */
 export const TILE_EMPTY = 0;
 /** Lita skała — nieprzepuszczalna przeszkoda (patrz TerrainCollisionSystem). */
 export const TILE_ROCK = 1;
+
+/**
+ * Promień (w komórkach) użyty przez `TerrainGrid.isOpenField` do odróżnienia
+ * komórki "na prawdziwym otwartym" od komórki, która tylko PRZYPADKIEM
+ * należy do tej samej (dużej, scalonej) składowej co świat zewnętrzny —
+ * patrz `recomputeShelterMap`. Stała wewnętrzna, nie config: to detal
+ * implementacyjny algorytmu, nie coś, co ma sens stroić z UI.
+ */
+const OPEN_FIELD_RADIUS = 2;
 
 /**
  * Teren jako siatka kwadratowych komórek — każda jest pusta albo lita.
@@ -27,19 +36,29 @@ export class TerrainGrid {
   private readonly worldSize: number;
 
   /**
-   * Mapa "schronienia" (patrz `isShelterAt`) — 1 = pusta komórka należąca do
-   * MAŁEGO otoczonego kieszonki (jaskinia, zbudowane pomieszczenie...),
-   * 0 = lita komórka LUB pusta komórka będąca częścią wielkiego, otwartego
-   * świata. Przeliczana leniwie (`ensureShelterMap`), unieważniana przy
-   * każdej zmianie terenu (`set`) — kopanie i budowanie mogą zarówno
-   * scalić kieszonkę ze światem zewnętrznym, jak i odciąć nowy fragment.
+   * Mapa "schronienia" (patrz `isShelterAt`) — 1 = pusta komórka dostatecznie
+   * głęboko wewnątrz (patrz `recomputeShelterMap`), 0 = lita komórka LUB
+   * pusta komórka zbyt blisko otwartego świata. Przeliczana leniwie
+   * (`ensureShelterMap`), unieważniana przy każdej zmianie terenu (`set`).
    */
   private shelterCells: Uint8Array | null = null;
   private shelterDirty = true;
-  private shelterMaxCells = -1;
-  private readonly shelterVisited: Uint8Array;
+  private shelterExteriorMinCells = -1;
+  private shelterMinDepth = -1;
+  private shelterHeatLeakRadius = -1;
+  /** Odległość (kroki BFS) do najbliższej komórki należącej do "prawdziwie
+   *  zewnętrznej" składowej; -1 = nieodwiedzona (całkowicie odizolowana). */
+  private readonly shelterDist: Int32Array;
+  /** Odległość (kroki BFS, w drugą stronę) od najbliższej komórki BĘDĄCEJ
+   *  schronieniem, ograniczona do `heatLeakRadius` — "ciepło wyciekające"
+   *  na zewnątrz przez wejście. -1 = poza zasięgiem wycieku. */
+  private readonly shelterLeak: Int32Array;
+  /** Reużywana jako bufor kolejki BFS w `recomputeShelterMap` (wszystkie etapy). */
   private readonly shelterStack: Int32Array;
-  private readonly shelterComponent: Int32Array;
+  /** Reużywana jako znacznik "odwiedzony" przy szukaniu surowych składowych
+   *  (etap 1 `recomputeShelterMap`) — osobna od `shelterDist`, bo TA
+   *  ostatnia w tym etapie jeszcze nie niesie żadnej informacji. */
+  private readonly shelterVisited: Uint8Array;
 
   constructor(worldSize: number, cellSize: number) {
     this.worldSize = worldSize;
@@ -47,9 +66,10 @@ export class TerrainGrid {
     this.cols = Math.max(1, Math.round(worldSize / cellSize));
     this.cells = new Uint8Array(this.cols * this.cols);
     const n = this.cols * this.cols;
-    this.shelterVisited = new Uint8Array(n);
+    this.shelterDist = new Int32Array(n);
+    this.shelterLeak = new Int32Array(n);
     this.shelterStack = new Int32Array(n);
-    this.shelterComponent = new Int32Array(n);
+    this.shelterVisited = new Uint8Array(n);
   }
 
   private wrapCell(c: number): number {
@@ -96,137 +116,124 @@ export class TerrainGrid {
   }
 
   /**
-   * Wypełnia dysk wokół `(centerX,centerY)` wartością `value`. Próbkuje
-   * środek KAŻDEJ komórki w kwadracie opisanym na promieniu (systematyczne
-   * wypełnienie, nie losowe próbkowanie punktów) — dlatego wynik jest
-   * z definicji szczelny, bez dziur.
-   */
-  private fillDisc(centerX: number, centerY: number, radius: number, value: number): void {
-    const r2 = radius * radius;
-    const reach = Math.ceil(radius / this.cellSize) + 1;
-    const baseCx = Math.floor(centerX / this.cellSize);
-    const baseCy = Math.floor(centerY / this.cellSize);
-
-    for (let oy = -reach; oy <= reach; oy++) {
-      for (let ox = -reach; ox <= reach; ox++) {
-        const cx = baseCx + ox;
-        const cy = baseCy + oy;
-        const { x, y } = this.cellCenter(cx, cy);
-        const dx = wrapDelta(x - centerX, this.worldSize);
-        const dy = wrapDelta(y - centerY, this.worldSize);
-        if (dx * dx + dy * dy <= r2) this.set(cx, cy, value);
-      }
-    }
-  }
-
-  /** Lity dysk skały — masyw góry, ZANIM wyrzeźbi się w nim system tuneli. */
-  carveSolidDisc(centerX: number, centerY: number, radius: number): void {
-    this.fillDisc(centerX, centerY, radius, TILE_ROCK);
-  }
-
-  /**
-   * Rzeźbi organiczny, rozgałęziony system tuneli/komnat wewnątrz litego
-   * masywu (patrz `carveSolidDisc`) — "błądzenie pijaka" (drunkard's walk):
-   * wirtualny kopacz startuje w środku góry, idzie losowo skręcającą
-   * trasą, od czasu do czasu odgałęzia nowego kopacza albo poszerza
-   * korytarz w małą komnatę. To celowo NIE jest okrąg — prawdziwe jaskinie
-   * to sieć korytarzy, nie jedna okrągła sala.
+   * Generuje CAŁY teren automatem komórkowym (klasyczny, dobrze znany
+   * algorytm generowania jaskiń — patrz RogueBasin "Cellular Automata
+   * Method for Generating Random Cave-Like Levels"): zamiast rzeźbić N
+   * osobnych masywów o zaprojektowanym kształcie, JEDNA reguła sąsiedztwa
+   * zastosowana do całej siatki naraz decyduje, gdzie jest ściana, a gdzie
+   * korytarz czy komnata. Nie ma pojęcia "góra" ani "promień" — ściany i
+   * jaskinie wyłaniają się jako jeden ciągły, nieprzewidziany z góry wzór.
    *
-   * Trasa jest trzymana we współrzędnych WZGLĘDEM środka (nie świata) przez
-   * cały spacer, żeby zawijanie świata (torus) nie komplikowało arytmetyki
-   * kroku — zawijamy dopiero przy właściwym rzeźbieniu komórek.
+   * Świat jest torusem (`index()` zawija współrzędne), więc siatka NIE MA
+   * krawędzi — sąsiedztwo każdej komórki zawija się naturalnie na drugą
+   * stronę mapy. To eliminuje całą klasę błędów brzegowych, na które
+   * trafiły wcześniejsze wersje tej funkcji (okno robocze wokół pojedynczej
+   * góry ZAWSZE miało jakąś sztuczną granicę, i niezależnie od tego, czy
+   * potraktowano ją jako litą czy pustą, psuła kształt przy tej granicy —
+   * pierścień litej skały zamiast bryły, albo erozja do zera).
    *
-   * Kluczowy niezmiennik: żaden wykuty fragment (łącznie z promieniem
-   * ewentualnej komnaty) nigdy nie sięga zewnętrznej krawędzi masywu —
-   * boundaryRadius jest pomniejszony o promień komnaty WŁAŚNIE po to, żeby
-   * to zagwarantować niezależnie od tego, jak akurat poprowadzi błądzenie.
-   * Dzięki temu jaskinia zawsze zostaje szczelnie zamknięta w masywie —
-   * zweryfikowane osobnym probe (flood-fill nigdy nie ucieka na zewnątrz).
+   * Trzy kroki:
+   *  1. Losowe ziarno: każda komórka lita z prawdopodobieństwem
+   *     `fillProbability` (klasyczne ~0.45) — jedyne miejsce, gdzie wchodzi
+   *     przypadek.
+   *  2. `iterations` przebiegów reguły — ale NIE prostej "większość sąsiadów
+   *     Moore'a" (to erodowało całą siatkę do zera przy realistycznej
+   *     gęstości ziarna, zmierzone probe'em): klasyczny algorytm liczy DWA
+   *     promienie sąsiedztwa. `count1` (promień 1, 8 komórek) reguluje
+   *     zagęszczanie/wygładzanie już gęstych obszarów: `count1 >= threshold`
+   *     -> lita. `count2` (promień 2, 24 komórki) zapobiega wymarciu:
+   *     `count2 <= 2` (prawie całkowicie puste dalsze otoczenie) -> też
+   *     lita, dopóki trwają wczesne iteracje (`useWideRule`) — to właśnie
+   *     ten drugi warunek ratuje algorytm przed erozją do zera przy
+   *     umiarkowanej gęstości ziarna. Ostatnia iteracja pomija już regułę
+   *     szerokiego promienia — czysto wygładzająca, bez dorzucania nowej skały.
+   *  3. Sprzątanie: małe (< `minRockClusterCells`) odosobnione grudki skały
+   *     (szum po automacie) są usuwane.
    */
-  carveTunnelNetwork(
-    centerX: number,
-    centerY: number,
+  generateCaves(
     rng: Rng,
     opts: {
-      /** Kroków głównego kopacza (odgałęzienia dostają ułamek pozostałych). */
-      maxSteps: number;
-      /** Losowy skręt (radiany) dodawany do kierunku po każdym kroku. */
-      turnRadians: number;
-      /** Szansa na odgałęzienie nowego kopacza przy danym kroku. */
-      branchChance: number;
-      /** Twardy limit łącznej liczby odgałęzień (chroni przed eksplozją). */
-      maxBranches: number;
-      /** Szansa na poszerzenie bieżącego miejsca w małą komnatę. */
-      chamberChance: number;
-      /** Promień masywu, w którym mieści się cały system (patrz `carveSolidDisc`). */
-      mountainRadius: number;
-      /** Zapas litej skały, który MUSI pozostać między tunelem a krawędzią masywu. */
-      marginToEdge: number;
+      fillProbability: number;
+      iterations: number;
+      neighborThreshold: number;
+      minRockClusterCells: number;
     },
   ): void {
-    const tunnelRadius = this.cellSize * 0.6;
-    const chamberRadius = this.cellSize * 1.3;
-    // Środek żadnego wykutego kawałka (tunel ani komnata) nie może wyjść
-    // poza ten promień — z zapasem na promień komnaty, żeby SAMO wykucie
-    // (nie tylko środek trasy) zawsze zmieściło się w masywie.
-    const boundaryRadius = Math.max(
-      tunnelRadius + 1,
-      opts.mountainRadius - opts.marginToEdge - chamberRadius,
-    );
+    const cols = this.cols;
+    const n = cols * cols;
+    let grid = new Uint8Array(n);
+    let next = new Uint8Array(n);
 
-    interface Walker {
-      ox: number;
-      oy: number;
-      angle: number;
-      stepsLeft: number;
+    for (let i = 0; i < n; i++) {
+      grid[i] = rng.chance(opts.fillProbability) ? 1 : 0;
     }
-    const pending: Walker[] = [
-      { ox: 0, oy: 0, angle: rng.range(0, TAU), stepsLeft: opts.maxSteps },
-    ];
-    let branchesSpawned = 0;
 
-    while (pending.length > 0) {
-      const w = pending.pop()!;
-      while (w.stepsLeft > 0) {
-        w.stepsLeft--;
-        const worldX = wrap(centerX + w.ox, this.worldSize);
-        const worldY = wrap(centerY + w.oy, this.worldSize);
-        this.fillDisc(worldX, worldY, tunnelRadius, TILE_EMPTY);
-        if (rng.chance(opts.chamberChance)) {
-          this.fillDisc(worldX, worldY, chamberRadius, TILE_EMPTY);
+    for (let iter = 0; iter < opts.iterations; iter++) {
+      const useWideRule = iter < opts.iterations - 1;
+      for (let cy = 0; cy < cols; cy++) {
+        for (let cx = 0; cx < cols; cx++) {
+          let count1 = 0;
+          let count2 = 0;
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const v = grid[this.index(cx + dx, cy + dy)];
+              count2 += v;
+              if (dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1) count1 += v;
+            }
+          }
+          const wall = count1 >= opts.neighborThreshold || (useWideRule && count2 <= 2);
+          next[cy * cols + cx] = wall ? 1 : 0;
         }
+      }
+      const tmp = grid;
+      grid = next;
+      next = tmp;
+    }
 
-        if (branchesSpawned < opts.maxBranches && w.stepsLeft > 5 && rng.chance(opts.branchChance)) {
-          branchesSpawned++;
-          const turn = (rng.chance(0.5) ? 1 : -1) * (Math.PI / 2 + rng.symmetric(0.4));
-          pending.push({
-            ox: w.ox,
-            oy: w.oy,
-            angle: w.angle + turn,
-            stepsLeft: Math.floor(w.stepsLeft * 0.6),
-          });
+    // --- sprzątanie: usuń małe odosobnione grudki skały (flood-fill) ---
+    if (opts.minRockClusterCells > 0) {
+      const visited = new Uint8Array(n);
+      const stack = new Int32Array(n);
+      const members = new Int32Array(n);
+      for (let start = 0; start < n; start++) {
+        if (visited[start] || grid[start] === 0) continue;
+        let sp = 0;
+        let memberCount = 0;
+        stack[sp++] = start;
+        visited[start] = 1;
+        while (sp > 0) {
+          const u = stack[--sp];
+          members[memberCount++] = u;
+          const ux = u % cols;
+          const uy = Math.floor(u / cols);
+          const neighbors = [
+            this.index(ux + 1, uy),
+            this.index(ux - 1, uy),
+            this.index(ux, uy + 1),
+            this.index(ux, uy - 1),
+          ];
+          for (const ni of neighbors) {
+            if (visited[ni] || grid[ni] === 0) continue;
+            visited[ni] = 1;
+            stack[sp++] = ni;
+          }
         }
-
-        w.angle += rng.symmetric(opts.turnRadians);
-        let nox = w.ox + Math.cos(w.angle) * this.cellSize;
-        let noy = w.oy + Math.sin(w.angle) * this.cellSize;
-        if (Math.hypot(nox, noy) > boundaryRadius) {
-          // Zawróć w stronę środka zamiast wyjść poza bezpieczny promień.
-          w.angle = Math.atan2(-noy, -nox) + rng.symmetric(0.3);
-          nox = w.ox + Math.cos(w.angle) * this.cellSize;
-          noy = w.oy + Math.sin(w.angle) * this.cellSize;
+        if (memberCount < opts.minRockClusterCells) {
+          for (let i = 0; i < memberCount; i++) grid[members[i]] = 0;
         }
-        w.ox = nox;
-        w.oy = noy;
       }
     }
+
+    for (let i = 0; i < n; i++) this.cells[i] = grid[i] === 1 ? TILE_ROCK : TILE_EMPTY;
+    this.shelterDirty = true;
   }
 
   /**
-   * Najbliższa lita komórka w promieniu `maxDist` od `(x,y)` — do sensora
-   * "najbliższa ściana" (patrz SensorSystem). Zwraca wektor DO najbliższego
-   * PUNKTU na tej komórce (nie do jej środka), żeby "bliskość" i kierunek
-   * odzwierciedlały faktyczną krawędź ściany, tak jak przy zderzeniach.
+   * Najbliższa lita komórka w promieniu `maxDist` od `(x,y)` — do zasięgu
+   * kopania/budowania (patrz `CarrySystem`). Zwraca wektor DO najbliższego
+   * PUNKTU na tej komórce (nie do jej środka), żeby kierunek odzwierciedlał
+   * faktyczną krawędź ściany, tak jak przy zderzeniach.
    */
   findNearestSolid(
     x: number,
@@ -292,86 +299,255 @@ export class TerrainGrid {
   // ------------------------------------------------------------ schronienie
 
   /**
-   * Czy `(x,y)` leży w PUSTEJ komórce należącej do małej, otoczonej ze
-   * wszystkich stron kieszonki (jaskinia górska, zbudowane pomieszczenie —
-   * cokolwiek, bez rozróżniania "naturalne" od "zbudowane") — używane przez
-   * EnergySystem do biernej korzyści ze schronienia.
+   * Czy `(x,y)` leży w PUSTEJ komórce dostatecznie GŁĘBOKO wewnątrz —
+   * używane przez EnergySystem do biernej korzyści ze schronienia. Patrz
+   * `shelterWarmthAt` po CIĄGŁĄ (nie progowaną) wersję tej samej odległości
+   * — do sensora sieci, nie tylko efektu metabolicznego.
    *
-   * Definicja jest topologiczna, nie geometryczna: liczymy SPÓJNE SKŁADOWE
-   * pustych komórek (4-sąsiedztwo) i każdą składową mniejszą niż
-   * `maxCells` uznajemy za "wnętrze"; ogromna spójna składowa obejmująca
-   * większość mapy to po prostu otwarty świat. To działa jednakowo dla
-   * naturalnych jaskiń i dowolnej struktury dobudowanej przez agentów —
-   * nie ma specjalnego przypadku dla gór.
+   * Definicja jest odległościowa: liczymy dla KAŻDEJ pustej komórki
+   * odległość (w krokach po siatce, 4-sąsiedztwo) do najbliższej komórki
+   * należącej do "prawdziwie zewnętrznej" składowej (patrz
+   * `recomputeShelterMap` — rozstrzyga to ROZMIAR surowej spójnej składowej,
+   * nie lokalna geometria: pokój bez żadnego wyjścia, choćby duży, nigdy
+   * sam nie należy do takiej składowej). Komórka liczy się jako schronienie,
+   * jeśli ta odległość wynosi co najmniej `minDepth` (ALBO żadna komórka
+   * zewnętrzna nie jest w ogóle osiągalna — pełna izolacja).
+   *
+   * To rozróżnia "wąskie drzwi" od "wyburzonej ściany" BEZ zgadywania
+   * szerokości wyłomu: wejście, choćby szerokie, po prostu ZUŻYWA kilka
+   * kroków głębokości, zanim dotrze do prawdziwego wnętrza — komórki blisko
+   * wejścia wypadają z definicji, komórki głęboko w środku (nawet jeśli
+   * technicznie "połączone ze światem") zostają schronieniem. Działa
+   * jednakowo dla naturalnych jaskiń i dowolnej struktury dobudowanej przez
+   * agentów — nie ma specjalnego przypadku dla gór.
    */
-  isShelterAt(x: number, y: number, maxCells: number): boolean {
-    this.ensureShelterMap(maxCells);
+  isShelterAt(x: number, y: number, exteriorMinCells: number, minDepth: number, heatLeakRadius: number): boolean {
+    this.ensureShelterMap(exteriorMinCells, minDepth, heatLeakRadius);
     return this.shelterCells![this.index(this.cellX(x), this.cellY(y))] === 1;
   }
 
+  /**
+   * Wersja CIĄGŁA `isShelterAt` — 1 = pełna głębokość `minDepth` lub więcej
+   * (ciepło), narasta w głąb schronienia. Na ZEWNĄTRZ nie jest zerem
+   * skokowo: ciepło WYCIEKA przez wejście i gaśnie z odległością aż do
+   * `heatLeakRadius` komórek (patrz etap 4 `recomputeShelterMap`) — dzięki
+   * temu agent stojący kawałek od wejścia też czuje gradient, nie tylko ten
+   * dosłownie na progu. Komórki całkowicie odizolowane od świata
+   * zewnętrznego (bez żadnego dostępu) dostają maksimum — są najgłębszym
+   * możliwym wnętrzem, niezależnie od tego, że formalnie nie mają zmierzonej
+   * odległości. Gradient jest łatwiejszy do wspinania ewolucyjnie niż twarda
+   * granica tak/nie.
+   */
+  shelterWarmthAt(x: number, y: number, exteriorMinCells: number, minDepth: number, heatLeakRadius: number): number {
+    this.ensureShelterMap(exteriorMinCells, minDepth, heatLeakRadius);
+    const i = this.index(this.cellX(x), this.cellY(y));
+    if (this.shelterCells![i] === 1) {
+      const d = this.shelterDist[i];
+      if (d === -1) return 1;
+      if (minDepth <= 0) return d > 0 ? 1 : 0;
+      return Math.min(1, d / minDepth);
+    }
+    // Na zewnątrz: ciepło zależy od bliskości do NAJBLIŻSZEGO schronienia
+    // (`shelterLeak`), nie od głębokości TEGO konkretnego — leak[i] === -1
+    // oznacza "poza zasięgiem wycieku z jakiegokolwiek wejścia w promieniu
+    // heatLeakRadius", czyli zimno (0).
+    const leak = this.shelterLeak[i];
+    if (leak === -1 || heatLeakRadius <= 0) return 0;
+    return Math.max(0, 1 - leak / heatLeakRadius);
+  }
+
   /** Surowa mapa schronienia (1 = wnętrze) — do wgrania na GPU (GpuEnergySystem). */
-  getShelterCells(maxCells: number): Uint8Array {
-    this.ensureShelterMap(maxCells);
+  getShelterCells(exteriorMinCells: number, minDepth: number, heatLeakRadius: number): Uint8Array {
+    this.ensureShelterMap(exteriorMinCells, minDepth, heatLeakRadius);
     return this.shelterCells!;
   }
 
-  private ensureShelterMap(maxCells: number): void {
-    if (!this.shelterDirty && this.shelterMaxCells === maxCells && this.shelterCells) return;
-    this.recomputeShelterMap(maxCells);
+  private ensureShelterMap(exteriorMinCells: number, minDepth: number, heatLeakRadius: number): void {
+    if (
+      !this.shelterDirty &&
+      this.shelterExteriorMinCells === exteriorMinCells &&
+      this.shelterMinDepth === minDepth &&
+      this.shelterHeatLeakRadius === heatLeakRadius &&
+      this.shelterCells
+    ) {
+      return;
+    }
+    this.recomputeShelterMap(exteriorMinCells, minDepth, heatLeakRadius);
     this.shelterDirty = false;
-    this.shelterMaxCells = maxCells;
+    this.shelterExteriorMinCells = exteriorMinCells;
+    this.shelterMinDepth = minDepth;
+    this.shelterHeatLeakRadius = heatLeakRadius;
   }
 
   /**
    * Przeliczenie PEŁNEJ mapy — O(liczba komórek), ale wywoływane tylko gdy
-   * teren faktycznie się zmienił (kopanie/budowanie), nie co tick. Prostsze
-   * i bezpieczniejsze niż przyrostowe utrzymywanie spójnych składowych
-   * (usunięcie komórki może ROZDZIELIĆ składową na kilka — to wymagałoby
-   * pełnego przeszukania i tak), a kopanie/budowanie są rzadkie względem
-   * liczby ticków.
+   * teren faktycznie się zmienił (kopanie/budowanie), nie co tick.
+   *
+   * Trzyetapowo:
+   *  1. Zwykły flood-fill po pustych komórkach -> surowe spójne składowe +
+   *     ich rozmiary. To NIE jest to samo pytanie co "czy jestem
+   *     schronieniem" (patrz historia zmian — czysta wielkość składowej
+   *     zawodzi na jednym wykopanym polu), tylko "czy w ogóle jestem
+   *     CZĘŚCIĄ czegoś na tyle wielkiego, żeby być prawdziwym zewnętrzem".
+   *  2. Komórki należące do składowej >= `exteriorMinCells` -> źródła
+   *     odległości 0 (wielo-źródłowe BFS). Próg musi być WIELOKROTNIE
+   *     większy niż jakakolwiek generowana jaskinia (rząd setek komórek),
+   *     żeby duży, ale wciąż w pełni zamknięty pokój nigdy sam siebie nie
+   *     uznał za "zewnętrze" — to dokładnie błąd, który miała czysto
+   *     lokalna geometria (promień prześwitu) w poprzedniej wersji.
+   *  3. BFS po WSZYSTKICH pustych komórkach (4-sąsiedztwo, bez rozróżniania
+   *     mostów) od tych źródeł. Komórki nieosiągnięte (`dist === -1`) są
+   *     całkowicie odizolowane od prawdziwego zewnętrza.
+   *
+   * `shelterCells[i] = 1` gdy `dist[i] === -1 || dist[i] >= minDepth`.
    */
-  private recomputeShelterMap(maxCells: number): void {
+  private recomputeShelterMap(exteriorMinCells: number, minDepth: number, heatLeakRadius: number): void {
     const n = this.cells.length;
     if (!this.shelterCells || this.shelterCells.length !== n) {
       this.shelterCells = new Uint8Array(n);
     } else {
       this.shelterCells.fill(0);
     }
+
+    const dist = this.shelterDist;
+    dist.fill(-1);
+    // Zwykła (nie cykliczna) kolejka FIFO — każda komórka wchodzi do
+    // każdego z dwóch flood-fillów co najwyżej raz, więc bufor rozmiaru
+    // `n` nigdy się nie przepełni w żadnym z nich.
+    const queue = this.shelterStack;
+
+    // --- 1: surowe spójne składowe + rozmiary (reużywamy `dist` jako
+    //     tymczasowy znacznik "odwiedzony w tym przebiegu", potem fill(-1)
+    //     ponownie przed właściwym BFS) ---
     const visited = this.shelterVisited;
     visited.fill(0);
-    const stack = this.shelterStack;
-    const component = this.shelterComponent;
-
     for (let start = 0; start < n; start++) {
       if (visited[start] || this.cells[start] === TILE_ROCK) continue;
 
-      let stackLen = 0;
-      let compLen = 0;
+      let qHead = 0;
+      let qTail = 0;
       visited[start] = 1;
-      stack[stackLen++] = start;
+      queue[qTail++] = start;
+      let compLen = 0;
+      const compStart = qTail - 1; // `queue` podwaja rolę: FIFO teraz, potem odczyt jako lista komórek
 
-      while (stackLen > 0) {
-        const i = stack[--stackLen];
-        component[compLen++] = i;
-        const cy = Math.floor(i / this.cols);
-        const cx = i % this.cols;
+      while (qHead < qTail) {
+        const u = queue[qHead++];
+        compLen++;
+        const cy = Math.floor(u / this.cols);
+        const cx = u % this.cols;
         const neighbors = [
           this.index(cx + 1, cy),
           this.index(cx - 1, cy),
           this.index(cx, cy + 1),
           this.index(cx, cy - 1),
         ];
-        for (const nb of neighbors) {
-          if (visited[nb] || this.cells[nb] === TILE_ROCK) continue;
-          visited[nb] = 1;
-          stack[stackLen++] = nb;
+        for (const v of neighbors) {
+          if (visited[v] || this.cells[v] === TILE_ROCK) continue;
+          visited[v] = 1;
+          queue[qTail++] = v;
         }
       }
 
-      if (compLen < maxCells) {
-        for (let i = 0; i < compLen; i++) this.shelterCells[component[i]] = 1;
+      // Rozmiar składowej SAM w sobie NIE wystarcza: po scaleniu przez
+      // wyłom cała jaskinia jest technicznie częścią tej samej ogromnej
+      // składowej co prawdziwy świat, więc oznaczenie WSZYSTKICH jej
+      // komórek jako źródeł zniweczyłoby całą resztę algorytmu (dokładnie
+      // ten błąd złapał probe przy pierwszym podejściu). Źródłem może być
+      // WYŁĄCZNIE komórka, która DODATKOWO jest lokalnie "na otwartym"
+      // (`isOpenField`) — duża, ale wciąż wąska w każdym miejscu jaskinia
+      // (typowy wynik generatora tuneli) nie ma TAKIEJ komórki w ogóle,
+      // niezależnie od tego, ile ma łącznie pustych pól.
+      if (compLen >= exteriorMinCells) {
+        for (let i = compStart; i < compStart + compLen; i++) {
+          const cell = queue[i];
+          const cy = Math.floor(cell / this.cols);
+          const cx = cell % this.cols;
+          if (this.isOpenField(cx, cy, OPEN_FIELD_RADIUS)) dist[cell] = 0;
+        }
       }
     }
+
+    // --- 2+3: wielo-źródłowe BFS od komórek "prawdziwie zewnętrznych" ---
+    let qHead = 0;
+    let qTail = 0;
+    for (let i = 0; i < n; i++) if (dist[i] === 0) queue[qTail++] = i;
+
+    while (qHead < qTail) {
+      const u = queue[qHead++];
+      const cy = Math.floor(u / this.cols);
+      const cx = u % this.cols;
+      const neighbors = [
+        this.index(cx + 1, cy),
+        this.index(cx - 1, cy),
+        this.index(cx, cy + 1),
+        this.index(cx, cy - 1),
+      ];
+      for (const v of neighbors) {
+        if (this.cells[v] === TILE_ROCK || dist[v] !== -1) continue;
+        dist[v] = dist[u] + 1;
+        queue[qTail++] = v;
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      if (this.cells[i] === TILE_ROCK) continue;
+      if (dist[i] === -1 || dist[i] >= minDepth) this.shelterCells[i] = 1;
+    }
+
+    // --- 4: ciepło WYCIEKA na zewnątrz przez wejścia ---
+    // Drugie, OGRANICZONE wielo-źródłowe BFS, tym razem zasiane z komórek
+    // BĘDĄCYCH schronieniem i idące W DRUGĄ STRONĘ (na zewnątrz), zatrzymane
+    // po `heatLeakRadius` krokach. Bez tego "ciepło" istniałoby wyłącznie
+    // jako binarna właściwość wnętrza — agent na zewnątrz, nawet tuż przy
+    // wejściu, nie miałby żadnego gradientu do wspinania się w stronę
+    // schronienia. Fizycznie to to samo zjawisko co ciepłe powietrze
+    // wylatujące z jaskini: najsilniejsze przy progu, gaśnie z odległością.
+    const leak = this.shelterLeak;
+    leak.fill(-1);
+    qHead = 0;
+    qTail = 0;
+    for (let i = 0; i < n; i++) {
+      if (this.shelterCells[i] === 1) {
+        leak[i] = 0;
+        queue[qTail++] = i;
+      }
+    }
+    while (qHead < qTail) {
+      const u = queue[qHead++];
+      const nextDist = leak[u] + 1;
+      if (nextDist > heatLeakRadius) continue;
+      const cy = Math.floor(u / this.cols);
+      const cx = u % this.cols;
+      const neighbors = [
+        this.index(cx + 1, cy),
+        this.index(cx - 1, cy),
+        this.index(cx, cy + 1),
+        this.index(cx, cy - 1),
+      ];
+      for (const v of neighbors) {
+        if (this.cells[v] === TILE_ROCK || leak[v] !== -1) continue;
+        leak[v] = nextDist;
+        queue[qTail++] = v;
+      }
+    }
+  }
+
+  /**
+   * Czy komórka `(cx,cy)` jest lokalnie "na otwartym" — zero litych komórek
+   * w kwadracie o promieniu `OPEN_FIELD_RADIUS` wokół niej. WYŁĄCZNIE
+   * geometryczny test, celowo NIEWYSTARCZAJĄCY sam w sobie (duży, ale w
+   * pełni zamknięty pokój też by go przeszedł) — dlatego `recomputeShelterMap`
+   * używa go tylko jako DODATKOWY warunek do przynależności do składowej
+   * >= `exteriorMinCells`, nigdy samodzielnie.
+   */
+  private isOpenField(cx: number, cy: number, radius: number): boolean {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (this.cells[this.index(cx + dx, cy + dy)] === TILE_ROCK) return false;
+      }
+    }
+    return true;
   }
 
   // ------------------------------------------------------------ linia wzroku
@@ -437,5 +613,64 @@ export class TerrainGrid {
       if (this.isSolidCell(cx, cy)) return false;
     }
     return true;
+  }
+
+  /**
+   * Rzuca promień OD `(x0,y0)` w kierunku `angle` (radiany, układ świata) na
+   * odległość maksymalnie `maxDist` — zwraca dystans do PIERWSZEJ litej
+   * komórki, albo `maxDist`, jeśli żaden promień jej nie napotka. Do stożka
+   * widzenia (patrz SensorSystem) — DOKŁADNIE ten sam DDA co
+   * `hasLineOfSight` (żeby zachować spójność z resztą sensorów blokowanych
+   * przez ściany), ale zwraca ODLEGŁOŚĆ zamiast tak/nie, bo stożek musi
+   * wiedzieć JAK DALEKO jest ściana, nie tylko czy jakaś tam jest.
+   */
+  castRay(x0: number, y0: number, angle: number, maxDist: number): number {
+    const dx = Math.cos(angle) * maxDist;
+    const dy = Math.sin(angle) * maxDist;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1e-9) return maxDist;
+
+    let cx = Math.floor(x0 / this.cellSize);
+    let cy = Math.floor(y0 / this.cellSize);
+    const endCx = Math.floor((x0 + dx) / this.cellSize);
+    const endCy = Math.floor((y0 + dy) / this.cellSize);
+
+    const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+
+    const tDeltaX = dx !== 0 ? Math.abs(this.cellSize / dx) : Infinity;
+    const tDeltaY = dy !== 0 ? Math.abs(this.cellSize / dy) : Infinity;
+
+    const nextBoundaryX = stepX > 0 ? (cx + 1) * this.cellSize : cx * this.cellSize;
+    const nextBoundaryY = stepY > 0 ? (cy + 1) * this.cellSize : cy * this.cellSize;
+
+    let tMaxX = dx !== 0 ? (nextBoundaryX - x0) / dx : Infinity;
+    let tMaxY = dy !== 0 ? (nextBoundaryY - y0) / dy : Infinity;
+
+    const maxSteps = (Math.abs(cx - endCx) + Math.abs(cy - endCy) + 4) * 2;
+    let steps = 0;
+
+    while ((cx !== endCx || cy !== endCy) && steps < maxSteps) {
+      steps++;
+      let t: number;
+      if (Math.abs(tMaxX - tMaxY) < 1e-9) {
+        if (this.isSolidCell(cx + stepX, cy) || this.isSolidCell(cx, cy + stepY)) return tMaxX * dist;
+        cx += stepX;
+        cy += stepY;
+        t = tMaxX;
+        tMaxX += tDeltaX;
+        tMaxY += tDeltaY;
+      } else if (tMaxX < tMaxY) {
+        cx += stepX;
+        t = tMaxX;
+        tMaxX += tDeltaX;
+      } else {
+        cy += stepY;
+        t = tMaxY;
+        tMaxY += tDeltaY;
+      }
+      if (this.isSolidCell(cx, cy)) return t * dist;
+    }
+    return maxDist;
   }
 }

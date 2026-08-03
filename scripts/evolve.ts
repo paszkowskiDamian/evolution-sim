@@ -28,13 +28,25 @@ function arg(name: string, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
 }
 
+function strArg(name: string, fallback: string): string {
+  const i = process.argv.indexOf(`--${name}`);
+  if (i === -1) return fallback;
+  return process.argv[i + 1] ?? fallback;
+}
+
 const ticks = arg('ticks', 300000);
 const seed = arg('seed', 1);
 const cohortSize = arg('cohort', 30);
 const assayTicks = arg('assayTicks', 4000);
+// minPopulation domyślnie jest WYŁĄCZONE (0) w symulacji interaktywnej —
+// wymarcie jest tam dozwolonym wynikiem eksperymentu (patrz
+// simulationConfig.ts). Długi, samotny bieg ewolucyjny to inny przypadek
+// użycia: potrzebuje DOŻYĆ do wielu pokoleń, więc dostaje własną,
+// jawną podłogę populacji zamiast dziedziczyć domyślne wyłączenie.
+const minPopulation = arg('minPopulation', 80);
 
-console.log(`Ewolucja genomu startowego (seed=${seed}, ticks=${ticks})\n`);
-const sim = new Simulation({ seed });
+console.log(`Ewolucja genomu startowego (seed=${seed}, ticks=${ticks}, minPopulation=${minPopulation})\n`);
+const sim = new Simulation({ seed, minPopulation });
 
 const chunk = Math.max(1, Math.floor(ticks / 20));
 const t0 = performance.now();
@@ -98,7 +110,9 @@ if (bestIndex < 0) {
 const best = genomes[bestIndex];
 console.log(`\nNajlepszy kandydat: zjadł ${bestScore} jednostek jedzenia w ${assayTicks}-tickowej ocenie i przeżył ją całą.`);
 
-const outPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'config', 'seedGenome.json');
+const outArg = strArg('out', '');
+const defaultOutPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'config', 'seedGenome.json');
+const outPath = outArg === '' ? defaultOutPath : path.isAbsolute(outArg) ? outArg : path.join(process.cwd(), outArg);
 writeFileSync(
   outPath,
   JSON.stringify({

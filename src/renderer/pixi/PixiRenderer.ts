@@ -180,7 +180,11 @@ export class PixiRenderer {
     const g = this.caveLayer;
     g.clear();
     const terrain = sim.world.terrain;
-    const shelterCells = terrain.getShelterCells(sim.config.shelterMaxCells);
+    const shelterCells = terrain.getShelterCells(
+      sim.config.shelterExteriorMinCells,
+      sim.config.shelterMinDepth,
+      sim.config.shelterHeatLeakRadius,
+    );
     const cellSize = terrain.cellSize;
     const cols = terrain.cols;
 

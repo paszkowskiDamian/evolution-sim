@@ -84,9 +84,18 @@ function check(name: string, ok: boolean, detail = ''): void {
 
 console.log(`Test determinizmu (${TICKS} ticków)\n`);
 
-const a = new Simulation({ seed: 4242 });
-const b = new Simulation({ seed: 4242 });
-const c = new Simulation({ seed: 9999 });
+// `minPopulation` domyślnie jest WYŁĄCZONE (0) — wymarcie jest teraz
+// dozwolonym wynikiem, nie czymś, co silnik po cichu zapobiega (patrz
+// simulationConfig.ts). Ten test sprawdza natomiast, czy MECHANIKI
+// (rozmnażanie, jedzenie, obie płcie) w ogóle działają poprawnie — a to
+// pytanie inne niż "czy wymiera pod domyślnym configiem". Bez własnego,
+// jawnego progu ten test byłby zakładnikiem tego, czy akurat wybrany seed
+// przetrwa, zamiast testować mechaniki.
+const POPULATION_FLOOR = { minPopulation: 80 };
+
+const a = new Simulation({ seed: 4242, ...POPULATION_FLOOR });
+const b = new Simulation({ seed: 4242, ...POPULATION_FLOOR });
+const c = new Simulation({ seed: 9999, ...POPULATION_FLOOR });
 
 a.run(TICKS);
 b.run(TICKS);

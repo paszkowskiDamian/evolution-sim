@@ -195,7 +195,11 @@ export function decodePhenotype(genome: Float32Array, config: SimulationConfig):
     // Większe ciało = więcej wytrzymałości w walce — nie ma osobnego genu,
     // korzystamy wprost z już zdekodowanego promienia.
     maxHealth: config.baseMaxHealth * (0.5 + 0.5 * sizeFrac),
-    gender: genome[o + BIO_GENES.gender] >= 0 ? MALE : FEMALE,
+    // Próg NIE musi leżeć w 0 — `genderMaleThreshold` przesuwa go, oddając
+    // samicom szerszy (albo węższy) fragment zakresu genu. Wciąż w pełni
+    // genetyczne i dziedziczne (krzyżowanie + mutacja), tylko start (i każde
+    // kolejne odchylenie od symetrii) nie musi być idealnie 50/50.
+    gender: genome[o + BIO_GENES.gender] >= config.genderMaleThreshold ? MALE : FEMALE,
   };
 }
 
