@@ -55,8 +55,10 @@ const TUNABLE: Array<{
   // (i pamięć na populację) potrafi urosnąć do setek MB — to świadomy
   // kompromis eksperymentatora, nie awaria.
   { key: 'maxLayerWidth', label: 'maks. szerokość warstwy (= pamięć agenta)', min: 4, max: 96, step: 1, restart: true },
-  { key: 'mountainCount', label: 'liczba gór', min: 0, max: 40, step: 1, restart: true },
   { key: 'terrainCellSize', label: 'rozmiar komórki terenu', min: 10, max: 60, step: 1, restart: true },
+  { key: 'caveFillProbability', label: 'gęstość ziarna jaskiń', min: 0.3, max: 0.6, step: 0.01, restart: true },
+  { key: 'caveIterations', label: 'przebiegi automatu jaskiń', min: 1, max: 8, step: 1, restart: true },
+  { key: 'caveNeighborThreshold', label: 'próg reguły jaskiń', min: 3, max: 8, step: 1, restart: true },
   { key: 'rockRadius', label: 'promień luźnego kamienia', min: 1, max: 20, step: 1 },
   { key: 'pickupRange', label: 'zasięg chwytu/kopania', min: 1, max: 30, step: 1 },
   { key: 'carryMetabolismMultiplier', label: 'koszt niesienia', min: 1, max: 2, step: 0.05 },

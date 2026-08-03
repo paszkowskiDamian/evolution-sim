@@ -55,37 +55,21 @@ export interface SimulationConfig {
   /** Ile luźnych kamieni musi trafić na PUSTĄ komórkę, żeby stężała w ścianę. */
   buildRockThreshold: number;
 
-  // --- góry / jaskinie (formacje terenu) ---
-  /** Ile formacji górskich istnieje w świecie. */
-  mountainCount: number;
-  /** Promień litego masywu góry (pełny dysk skały, ZANIM wyrzeźbi się w nim tunele). */
-  mountainRadius: number;
+  // --- teren (jaskinie/skały) ---
   /**
-   * Obrys masywu (patrz `TerrainGrid.carveOrganicMassif`) — 0 = idealne koło,
-   * rośnie ku 1 -> coraz bardziej postrzępiony, naturalny kształt (przy
-   * wysokich wartościach masyw może rozpaść się na kilka osobnych brył).
+   * Prawdopodobieństwo, że komórka jest lita w losowym ziarnie automatu —
+   * klasyczne ~0.45 z algorytmu "4-5 rule" (patrz RogueBasin "Cellular
+   * Automata Method for Generating Random Cave-Like Levels"). To jedyne
+   * miejsce, gdzie wchodzi "przypadek" — reszta kształtu to już
+   * deterministyczna reguła sąsiedztwa, patrz `TerrainGrid.generateCaves`.
    */
-  mountainNoiseWeight: number;
-  /** Liczba oktaw fraktalnego szumu obrysu — więcej = więcej detalu na różnych skalach, kosztem czasu generacji (wyłącznie przy starcie świata). */
-  mountainNoiseOctaves: number;
-  /** Częstotliwość szumu obrysu (jednostki świata^-1) — mniejsza = szersze, łagodniejsze wybrzuszenia; większa = drobniejszy, bardziej "kudłaty" detal. */
-  mountainNoiseFrequency: number;
-  /** Mnożnik częstotliwości między kolejnymi oktawami szumu (standardowo 2). */
-  mountainNoiseLacunarity: number;
-  /** Mnożnik amplitudy między kolejnymi oktawami szumu (standardowo 0.5). */
-  mountainNoiseGain: number;
-  /** Kroków głównego kopacza sieci tuneli wewnątrz masywu (patrz `TerrainGrid.carveTunnelNetwork`). */
-  tunnelSteps: number;
-  /** Maks. losowy skręt (radiany) na krok — większe = bardziej kręta trasa. */
-  tunnelTurnAngle: number;
-  /** Szansa na odgałęzienie nowego korytarza przy danym kroku. */
-  tunnelBranchChance: number;
-  /** Twardy limit łącznej liczby odgałęzień na górę. */
-  tunnelMaxBranches: number;
-  /** Szansa na poszerzenie danego miejsca w małą komnatę. */
-  tunnelChamberChance: number;
-  /** Zapas litej skały, który musi pozostać między siecią tuneli a krawędzią masywu. */
-  tunnelMarginToEdge: number;
+  caveFillProbability: number;
+  /** Ile przebiegów reguły większościowej — więcej wygładza mocniej (mniej izolowanych plamek, gładsze ściany), mniej zostawia surowy, poszarpany szum. */
+  caveIterations: number;
+  /** Próg reguły większościowej (sąsiedztwo Moore'a, promień 1, 8 sąsiadów) — komórka lita, gdy ma tylu lub więcej litych sąsiadów. Klasyczna wartość: 5. */
+  caveNeighborThreshold: number;
+  /** Odosobnione grudki skały mniejsze niż tyle komórek są usuwane po automacie — czysto kosmetyczne sprzątanie szumu, 0 = wyłączone. */
+  caveMinRockClusterCells: number;
   /**
    * Ile komórek musi mieć spójna pusta składowa, żeby liczyć się jako
    * "prawdziwie zewnętrzna" (patrz `TerrainGrid.recomputeShelterMap`) —
@@ -284,35 +268,21 @@ export const defaultConfig: SimulationConfig = {
   // osiągalne bez gromadzenia ogromnych zapasów, ale nie z jednego rzutu.
   buildRockThreshold: 3,
 
-  // Góra to LITY masyw skały (nominalny promień 150) o NIEREGULARNYM,
-  // naturalnym obrysie (patrz TerrainGrid.carveOrganicMassif) — nie idealne
-  // koło i nie pusty pierścień. Dopiero WEWNĄTRZ niego "błądzenie pijaka"
-  // wyrzeźbia rozgałęzioną sieć tuneli (patrz TerrainGrid.carveTunnelNetwork).
-  // Wypełnienie siatki jest z definicji szczelne — bez szczelin, przez które
-  // dałoby się przejść bez kopania — a granica sieci tuneli ma wbudowany
-  // zapas (tunnelMarginToEdge + promień komnaty) liczony od NOMINALNEGO
-  // promienia. Przy umiarkowanym mountainNoiseWeight (poniżej) to nadal
-  // praktycznie zawsze wystarcza; przy bardzo wysokich wartościach obrys
-  // bywa lokalnie węższy niż nominalny promień, więc gwarancja "tunel nigdy
-  // nie przebije się na zewnątrz sam z siebie" staje się przybliżona,
-  // nie absolutna.
-  mountainCount: 10,
-  mountainRadius: 150,
-  mountainNoiseWeight: 0.35,
-  mountainNoiseOctaves: 4,
-  // Okres podstawowej oktawy ~100 jednostek (1/0.01) -> przy promieniu 150
-  // (średnica 300) daje ok. 3 wybrzuszenia na obwodzie masywu — rozpoznawalnie
-  // nieregularny kształt, nie "poszarpane konfetti".
-  mountainNoiseFrequency: 0.01,
-  mountainNoiseLacunarity: 2,
-  mountainNoiseGain: 0.5,
-  tunnelSteps: 50,
-  tunnelTurnAngle: 0.6,
-  tunnelBranchChance: 0.03,
-  tunnelMaxBranches: 3,
-  tunnelChamberChance: 0.08,
-  tunnelMarginToEdge: 25,
-  // Naturalna sieć tuneli wychodzi w praktyce na rząd kilkudziesięciu-
+  // Cały teren to jeden automat komórkowy (patrz TerrainGrid.generateCaves)
+  // — klasyczna "4-5 rule": losowe ziarno wygładzone kilkoma przebiegami
+  // reguły większościowej (z regułą szerokiego promienia w pierwszych
+  // iteracjach, żeby nie wymrzeć do zera — patrz komentarz w
+  // `generateCaves`), ta sama, dobrze znana technika co w mnóstwie
+  // roguelike'ów. Nie ma pojęcia "góra": ściana czy korytarz wyłaniają się
+  // z reguły sąsiedztwa na całej mapie naraz, nikt ich nie rzeźbi osobno.
+  caveFillProbability: 0.45,
+  caveIterations: 5,
+  caveNeighborThreshold: 5,
+  // Grudki < 6 komórek to niemal zawsze pojedyncze piksele szumu po
+  // automacie, nie sensowne struktury — warte usunięcia bez zmiany
+  // charakteru reszty jaskini.
+  caveMinRockClusterCells: 6,
+  // Naturalna sieć jaskiń wychodzi w praktyce na rząd kilkudziesięciu-
   // -kilkuset komórek (zmierzone probe'em), a ręcznie zbudowane pomieszczenia
   // rzadko dorównują temu rozmiarowi. 1500 zostawia ogromny margines wobec
   // OBU tych przypadków, będąc wciąż o rząd wielkości mniejsze niż otwarty

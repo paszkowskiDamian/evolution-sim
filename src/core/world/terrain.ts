@@ -1,6 +1,5 @@
-import { wrap, wrapDelta, TAU, clamp } from '../utils/math';
+import { wrap, wrapDelta } from '../utils/math';
 import type { Rng } from '../utils/rng';
-import { fbm2D } from './noise';
 
 /** Pusta komórka — agent porusza się przez nią swobodnie. */
 export const TILE_EMPTY = 0;
@@ -117,180 +116,117 @@ export class TerrainGrid {
   }
 
   /**
-   * Wypełnia dysk wokół `(centerX,centerY)` wartością `value`. Próbkuje
-   * środek KAŻDEJ komórki w kwadracie opisanym na promieniu (systematyczne
-   * wypełnienie, nie losowe próbkowanie punktów) — dlatego wynik jest
-   * z definicji szczelny, bez dziur.
+   * Generuje CAŁY teren automatem komórkowym (klasyczny, dobrze znany
+   * algorytm generowania jaskiń — patrz RogueBasin "Cellular Automata
+   * Method for Generating Random Cave-Like Levels"): zamiast rzeźbić N
+   * osobnych masywów o zaprojektowanym kształcie, JEDNA reguła sąsiedztwa
+   * zastosowana do całej siatki naraz decyduje, gdzie jest ściana, a gdzie
+   * korytarz czy komnata. Nie ma pojęcia "góra" ani "promień" — ściany i
+   * jaskinie wyłaniają się jako jeden ciągły, nieprzewidziany z góry wzór.
+   *
+   * Świat jest torusem (`index()` zawija współrzędne), więc siatka NIE MA
+   * krawędzi — sąsiedztwo każdej komórki zawija się naturalnie na drugą
+   * stronę mapy. To eliminuje całą klasę błędów brzegowych, na które
+   * trafiły wcześniejsze wersje tej funkcji (okno robocze wokół pojedynczej
+   * góry ZAWSZE miało jakąś sztuczną granicę, i niezależnie od tego, czy
+   * potraktowano ją jako litą czy pustą, psuła kształt przy tej granicy —
+   * pierścień litej skały zamiast bryły, albo erozja do zera).
+   *
+   * Trzy kroki:
+   *  1. Losowe ziarno: każda komórka lita z prawdopodobieństwem
+   *     `fillProbability` (klasyczne ~0.45) — jedyne miejsce, gdzie wchodzi
+   *     przypadek.
+   *  2. `iterations` przebiegów reguły — ale NIE prostej "większość sąsiadów
+   *     Moore'a" (to erodowało całą siatkę do zera przy realistycznej
+   *     gęstości ziarna, zmierzone probe'em): klasyczny algorytm liczy DWA
+   *     promienie sąsiedztwa. `count1` (promień 1, 8 komórek) reguluje
+   *     zagęszczanie/wygładzanie już gęstych obszarów: `count1 >= threshold`
+   *     -> lita. `count2` (promień 2, 24 komórki) zapobiega wymarciu:
+   *     `count2 <= 2` (prawie całkowicie puste dalsze otoczenie) -> też
+   *     lita, dopóki trwają wczesne iteracje (`useWideRule`) — to właśnie
+   *     ten drugi warunek ratuje algorytm przed erozją do zera przy
+   *     umiarkowanej gęstości ziarna. Ostatnia iteracja pomija już regułę
+   *     szerokiego promienia — czysto wygładzająca, bez dorzucania nowej skały.
+   *  3. Sprzątanie: małe (< `minRockClusterCells`) odosobnione grudki skały
+   *     (szum po automacie) są usuwane.
    */
-  private fillDisc(centerX: number, centerY: number, radius: number, value: number): void {
-    const r2 = radius * radius;
-    const reach = Math.ceil(radius / this.cellSize) + 1;
-    const baseCx = Math.floor(centerX / this.cellSize);
-    const baseCy = Math.floor(centerY / this.cellSize);
-
-    for (let oy = -reach; oy <= reach; oy++) {
-      for (let ox = -reach; ox <= reach; ox++) {
-        const cx = baseCx + ox;
-        const cy = baseCy + oy;
-        const { x, y } = this.cellCenter(cx, cy);
-        const dx = wrapDelta(x - centerX, this.worldSize);
-        const dy = wrapDelta(y - centerY, this.worldSize);
-        if (dx * dx + dy * dy <= r2) this.set(cx, cy, value);
-      }
-    }
-  }
-
-  /** Lity dysk skały — masyw góry, ZANIM wyrzeźbi się w nim system tuneli. */
-  carveSolidDisc(centerX: number, centerY: number, radius: number): void {
-    this.fillDisc(centerX, centerY, radius, TILE_ROCK);
-  }
-
-  /**
-   * Lity masyw góry o NIEREGULARNYM, naturalnym obrysie — zamiast idealnego
-   * koła (`carveSolidDisc`), mieszanka gradientu odległości od środka
-   * (żeby masyw pozostał ograniczony, nie rozlał się po całej mapie) z
-   * fraktalnym szumem (`fbm2D`) — dokładnie ta sama technika co generowanie
-   * wybrzeży wysp w typowych generatorach map proceduralnych.
-   *
-   * `e(x,y) = gradient(x,y) * (1-noiseWeight) + noise(x,y) * noiseWeight`,
-   * lita komórka gdy `e > 0`. Przy `noiseWeight = 0` wynik jest identyczny
-   * z `carveSolidDisc` (czyste koło); rosnący `noiseWeight` robi obrys
-   * coraz bardziej postrzępiony — przy wysokich wartościach masyw może się
-   * nawet rozpaść na kilka osobnych brył, tak jak naturalne pasma górskie.
-   *
-   * Skanuje kwadrat o boku `2*radius*1.5` (zapas na "palce" wystające poza
-   * nominalny promień) — hojniejszy niż `fillDisc`, bo szum z definicji
-   * może wypchnąć obrys poza czysto kołowy zasięg.
-   */
-  carveOrganicMassif(
-    centerX: number,
-    centerY: number,
-    radius: number,
-    seed: number,
-    opts: { octaves: number; frequency: number; lacunarity: number; gain: number; noiseWeight: number },
-  ): void {
-    const reach = Math.ceil((radius * 1.5) / this.cellSize) + 1;
-    const baseCx = Math.floor(centerX / this.cellSize);
-    const baseCy = Math.floor(centerY / this.cellSize);
-    const noiseW = clamp(opts.noiseWeight, 0, 1);
-
-    for (let oy = -reach; oy <= reach; oy++) {
-      for (let ox = -reach; ox <= reach; ox++) {
-        const cx = baseCx + ox;
-        const cy = baseCy + oy;
-        const { x, y } = this.cellCenter(cx, cy);
-        const dx = wrapDelta(x - centerX, this.worldSize);
-        const dy = wrapDelta(y - centerY, this.worldSize);
-        const distNorm = Math.sqrt(dx * dx + dy * dy) / radius;
-
-        // 1 w środku, 0 na nominalnym promieniu, ujemny poza nim.
-        const gradient = 1 - distNorm;
-        // fbm próbkowane we WSPÓŁRZĘDNYCH ŚWIATA, skalowane częstotliwością
-        // niezależną od `radius` — ta sama `frequency` daje więcej "guzów"
-        // na dużym masywie niż na małym, tak jak w prawdziwym terenie.
-        const n = fbm2D(x * opts.frequency, y * opts.frequency, seed, opts.octaves, opts.lacunarity, opts.gain) * 2 - 1;
-        const e = gradient * (1 - noiseW) + n * noiseW;
-        if (e > 0) this.set(cx, cy, TILE_ROCK);
-      }
-    }
-  }
-
-  /**
-   * Rzeźbi organiczny, rozgałęziony system tuneli/komnat wewnątrz litego
-   * masywu (patrz `carveSolidDisc`) — "błądzenie pijaka" (drunkard's walk):
-   * wirtualny kopacz startuje w środku góry, idzie losowo skręcającą
-   * trasą, od czasu do czasu odgałęzia nowego kopacza albo poszerza
-   * korytarz w małą komnatę. To celowo NIE jest okrąg — prawdziwe jaskinie
-   * to sieć korytarzy, nie jedna okrągła sala.
-   *
-   * Trasa jest trzymana we współrzędnych WZGLĘDEM środka (nie świata) przez
-   * cały spacer, żeby zawijanie świata (torus) nie komplikowało arytmetyki
-   * kroku — zawijamy dopiero przy właściwym rzeźbieniu komórek.
-   *
-   * Kluczowy niezmiennik: żaden wykuty fragment (łącznie z promieniem
-   * ewentualnej komnaty) nigdy nie sięga zewnętrznej krawędzi masywu —
-   * boundaryRadius jest pomniejszony o promień komnaty WŁAŚNIE po to, żeby
-   * to zagwarantować niezależnie od tego, jak akurat poprowadzi błądzenie.
-   * Dzięki temu jaskinia zawsze zostaje szczelnie zamknięta w masywie —
-   * zweryfikowane osobnym probe (flood-fill nigdy nie ucieka na zewnątrz).
-   */
-  carveTunnelNetwork(
-    centerX: number,
-    centerY: number,
+  generateCaves(
     rng: Rng,
     opts: {
-      /** Kroków głównego kopacza (odgałęzienia dostają ułamek pozostałych). */
-      maxSteps: number;
-      /** Losowy skręt (radiany) dodawany do kierunku po każdym kroku. */
-      turnRadians: number;
-      /** Szansa na odgałęzienie nowego kopacza przy danym kroku. */
-      branchChance: number;
-      /** Twardy limit łącznej liczby odgałęzień (chroni przed eksplozją). */
-      maxBranches: number;
-      /** Szansa na poszerzenie bieżącego miejsca w małą komnatę. */
-      chamberChance: number;
-      /** Promień masywu, w którym mieści się cały system (patrz `carveSolidDisc`). */
-      mountainRadius: number;
-      /** Zapas litej skały, który MUSI pozostać między tunelem a krawędzią masywu. */
-      marginToEdge: number;
+      fillProbability: number;
+      iterations: number;
+      neighborThreshold: number;
+      minRockClusterCells: number;
     },
   ): void {
-    const tunnelRadius = this.cellSize * 0.6;
-    const chamberRadius = this.cellSize * 1.3;
-    // Środek żadnego wykutego kawałka (tunel ani komnata) nie może wyjść
-    // poza ten promień — z zapasem na promień komnaty, żeby SAMO wykucie
-    // (nie tylko środek trasy) zawsze zmieściło się w masywie.
-    const boundaryRadius = Math.max(
-      tunnelRadius + 1,
-      opts.mountainRadius - opts.marginToEdge - chamberRadius,
-    );
+    const cols = this.cols;
+    const n = cols * cols;
+    let grid = new Uint8Array(n);
+    let next = new Uint8Array(n);
 
-    interface Walker {
-      ox: number;
-      oy: number;
-      angle: number;
-      stepsLeft: number;
+    for (let i = 0; i < n; i++) {
+      grid[i] = rng.chance(opts.fillProbability) ? 1 : 0;
     }
-    const pending: Walker[] = [
-      { ox: 0, oy: 0, angle: rng.range(0, TAU), stepsLeft: opts.maxSteps },
-    ];
-    let branchesSpawned = 0;
 
-    while (pending.length > 0) {
-      const w = pending.pop()!;
-      while (w.stepsLeft > 0) {
-        w.stepsLeft--;
-        const worldX = wrap(centerX + w.ox, this.worldSize);
-        const worldY = wrap(centerY + w.oy, this.worldSize);
-        this.fillDisc(worldX, worldY, tunnelRadius, TILE_EMPTY);
-        if (rng.chance(opts.chamberChance)) {
-          this.fillDisc(worldX, worldY, chamberRadius, TILE_EMPTY);
+    for (let iter = 0; iter < opts.iterations; iter++) {
+      const useWideRule = iter < opts.iterations - 1;
+      for (let cy = 0; cy < cols; cy++) {
+        for (let cx = 0; cx < cols; cx++) {
+          let count1 = 0;
+          let count2 = 0;
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const v = grid[this.index(cx + dx, cy + dy)];
+              count2 += v;
+              if (dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1) count1 += v;
+            }
+          }
+          const wall = count1 >= opts.neighborThreshold || (useWideRule && count2 <= 2);
+          next[cy * cols + cx] = wall ? 1 : 0;
         }
+      }
+      const tmp = grid;
+      grid = next;
+      next = tmp;
+    }
 
-        if (branchesSpawned < opts.maxBranches && w.stepsLeft > 5 && rng.chance(opts.branchChance)) {
-          branchesSpawned++;
-          const turn = (rng.chance(0.5) ? 1 : -1) * (Math.PI / 2 + rng.symmetric(0.4));
-          pending.push({
-            ox: w.ox,
-            oy: w.oy,
-            angle: w.angle + turn,
-            stepsLeft: Math.floor(w.stepsLeft * 0.6),
-          });
+    // --- sprzątanie: usuń małe odosobnione grudki skały (flood-fill) ---
+    if (opts.minRockClusterCells > 0) {
+      const visited = new Uint8Array(n);
+      const stack = new Int32Array(n);
+      const members = new Int32Array(n);
+      for (let start = 0; start < n; start++) {
+        if (visited[start] || grid[start] === 0) continue;
+        let sp = 0;
+        let memberCount = 0;
+        stack[sp++] = start;
+        visited[start] = 1;
+        while (sp > 0) {
+          const u = stack[--sp];
+          members[memberCount++] = u;
+          const ux = u % cols;
+          const uy = Math.floor(u / cols);
+          const neighbors = [
+            this.index(ux + 1, uy),
+            this.index(ux - 1, uy),
+            this.index(ux, uy + 1),
+            this.index(ux, uy - 1),
+          ];
+          for (const ni of neighbors) {
+            if (visited[ni] || grid[ni] === 0) continue;
+            visited[ni] = 1;
+            stack[sp++] = ni;
+          }
         }
-
-        w.angle += rng.symmetric(opts.turnRadians);
-        let nox = w.ox + Math.cos(w.angle) * this.cellSize;
-        let noy = w.oy + Math.sin(w.angle) * this.cellSize;
-        if (Math.hypot(nox, noy) > boundaryRadius) {
-          // Zawróć w stronę środka zamiast wyjść poza bezpieczny promień.
-          w.angle = Math.atan2(-noy, -nox) + rng.symmetric(0.3);
-          nox = w.ox + Math.cos(w.angle) * this.cellSize;
-          noy = w.oy + Math.sin(w.angle) * this.cellSize;
+        if (memberCount < opts.minRockClusterCells) {
+          for (let i = 0; i < memberCount; i++) grid[members[i]] = 0;
         }
-        w.ox = nox;
-        w.oy = noy;
       }
     }
+
+    for (let i = 0; i < n; i++) this.cells[i] = grid[i] === 1 ? TILE_ROCK : TILE_EMPTY;
+    this.shelterDirty = true;
   }
 
   /**
