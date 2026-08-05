@@ -2,15 +2,14 @@ import type { System } from './System';
 import type { World } from '../world/world';
 import type { Agent } from '../agents/agent';
 import type { SimulationConfig } from '../../config/simulationConfig';
-import { FEMALE } from '../genetics/genome';
 
 /**
- * Rozmnażanie (płciowe).
+ * Rozmnażanie dwuosobnicze, bez ograniczenia płcią.
  *
  * Warunki fizjologiczne (dojrzałość, brak cooldownu, energia) muszą spełniać
  * OBOJE rodzice niezależnie, i oboje muszą "chcieć" — trzecie wyjście sieci
  * ("chęć rozmnażania") działa jak wzajemna zgoda, nie ma osobnego wyjścia
- * "zaloty". Agent szuka najbliższego partnera PRZECIWNEJ płci w zasięgu,
+ * "zaloty". Agent szuka najbliższego dowolnego partnera w zasięgu,
  * który też spełnia te warunki — to samo `matingRange`, ta sama logika
  * lokalnego wyszukiwania co reszta symulacji (bez wiedzy globalnej).
  *
@@ -42,7 +41,6 @@ export class ReproductionSystem implements System {
         if (id === a.id || claimed.has(id)) return;
         const b = world.agentById.get(id);
         if (!b || !b.alive) return;
-        if (b.phenotype.gender === a.phenotype.gender) return;
         if (!this.isReady(b, cfg)) return;
         if (d2 < bestD2) {
           bestD2 = d2;
@@ -62,13 +60,12 @@ export class ReproductionSystem implements System {
       a.childrenCount++;
       partner.childrenCount++;
 
-      const mother = a.phenotype.gender === FEMALE ? a : partner;
-      const father = a.phenotype.gender === FEMALE ? partner : a;
+      // Nazwy mother/father pozostają wyłącznie dla kompatybilności drzewa
+      // genealogicznego. Płeć nie ogranicza już doboru partnera.
+      const mother = a;
+      const father = partner;
 
-      // Matka dłużej dochodzi do siebie po porodzie niż ojciec — to ona
-      // fizycznie "urodziła", więc jej refrakcja jest dłuższa (ciąża/połóg),
-      // nie tylko symetryczny odstęp między kolejnymi kojarzeniami.
-      mother.reproCooldown = cfg.reproductionCooldown * cfg.motherCooldownMultiplier;
+      mother.reproCooldown = cfg.reproductionCooldown;
       father.reproCooldown = cfg.reproductionCooldown;
 
       // Część zainwestowanej energii ginie w samym akcie reprodukcji —

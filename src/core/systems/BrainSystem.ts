@@ -16,7 +16,8 @@ export class BrainSystem implements System {
     for (const a of world.agents) {
       if (!a.alive) continue;
       if (!world.config.memoryEnabled) a.hiddenState.fill(0);
-      a.brain.forward(a.lastInputs, a.hiddenState);
+      a.brain.forward(a.lastInputs, a.hiddenState, world.config.memoryEnabled ? a.memoryReadValue : 0);
+      a.applyExternalMemoryControls(world.config.memoryEnabled);
     }
   }
 }

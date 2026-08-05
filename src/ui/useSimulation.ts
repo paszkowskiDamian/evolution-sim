@@ -3,7 +3,6 @@ import { Simulation } from '../core/simulation/simulation';
 import { PixiRenderer } from '../renderer/pixi/PixiRenderer';
 import { defaultConfig, type SimulationConfig } from '../config/simulationConfig';
 import type { AgentView, StatsSample } from '../shared/types';
-import { FEMALE } from '../core/genetics/genome';
 import seedGenomeData from '../config/seedGenome.json';
 
 /**
@@ -27,8 +26,6 @@ const SEED_GENOME = new Float32Array(seedGenomeData.genome);
 export interface UiSnapshot {
   tick: number;
   population: number;
-  femaleCount: number;
-  maleCount: number;
   foodCount: number;
   cooperativeFoodCount: number;
   maxGeneration: number;
@@ -49,8 +46,6 @@ export interface UiSnapshot {
 const EMPTY_SNAPSHOT: UiSnapshot = {
   tick: 0,
   population: 0,
-  femaleCount: 0,
-  maleCount: 0,
   foodCount: 0,
   cooperativeFoodCount: 0,
   maxGeneration: 0,
@@ -86,7 +81,7 @@ export type GpuStatus = 'cpu' | 'gpu' | 'unsupported';
  * gesty na malowanie (patrz efekt interakcji niżej) — drugi palec nadal
  * służy do zoomu, niezależnie od aktywnego narzędzia.
  */
-export type EditTool = 'none' | 'addFood' | 'addCooperativeFood' | 'removeFood' | 'addWall' | 'removeWall';
+export type EditTool = 'none' | 'addCooperativeFood' | 'removeFood' | 'addWall' | 'removeWall';
 
 /** Odstęp (w jednostkach świata) między kolejnymi "stemplami" przy przeciąganiu. */
 const PAINT_SPACING = 20;
@@ -180,15 +175,9 @@ export function useSimulation() {
           // Liczone na żywo z bieżącej populacji (nie z próbki historii) —
           // podział płci ma być dokładnie tym, co widać teraz, nie migawką
           // sprzed statsInterval ticków.
-          let femaleCount = 0;
-          for (const a of current.world.agents) {
-            if (a.phenotype.gender === FEMALE) femaleCount++;
-          }
           setSnapshot({
             tick: current.tick,
             population: current.world.agents.length,
-            femaleCount,
-            maleCount: current.world.agents.length - femaleCount,
             foodCount: current.world.food.count,
             cooperativeFoodCount: current.world.food.cooperativeCount,
             maxGeneration: current.world.maxGeneration,
@@ -253,9 +242,6 @@ export function useSimulation() {
       const rect = host.getBoundingClientRect();
       const world = renderer.camera.screenToWorld(clientX - rect.left, clientY - rect.top);
       switch (tool) {
-        case 'addFood':
-          sim.world.addFoodAt(world.x, world.y);
-          break;
         case 'addCooperativeFood':
           sim.world.addCooperativeFoodAt(world.x, world.y);
           break;

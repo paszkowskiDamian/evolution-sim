@@ -109,13 +109,17 @@ zamiana dwóch genów miejscami, duża mutacja przepisująca fragment genomu.
 
 ## Sieć neuronowa
 
-MLP: `12 wejść → warstwa ukryta (tanh) → 3 wyjścia (tanh)`. Wagi pochodzą wprost z genomu —
-sieć **nie kopiuje** wag, operuje na widoku tej samej tablicy.
+Topologia MLP jest ewoluowalna (4–10 warstw, 4–16 neuronów domyślnie), a pierwsza warstwa
+jest rekurencyjna. Wagi pochodzą wprost z genomu — sieć **nie kopiuje** wag, operuje na
+widoku tej samej tablicy. Sensory obejmują stan ciała, sygnały, przedmioty i 11-promieniowy
+stożek widzenia. Wyjścia sterują ruchem, rozmnażaniem, przedmiotami, walką, jedzeniem,
+sygnałem oraz pamięcią adresowalną.
 
-**Wejścia:** bias, energia, wiek, prędkość, sin/cos kąta do najbliższego jedzenia, bliskość
-jedzenia, sin/cos kąta do najbliższego agenta, bliskość agenta, zagęszczenie lokalne, szum.
-
-**Wyjścia:** obrót, ruch, chęć rozmnażania.
+Każdy agent ma dodatkowo 128-slotowy bank pamięci, większy od wektora sensorów. Bank nie
+jest dopisany do wejść sensorycznych: sieć wystawia adres odczytu, adres zapisu, wartość
+i siłę zapisu, a pojedynczy odczyt jest projektowany bezpośrednio do pierwszej warstwy
+ukrytej w następnym ticku. Stan pamięci zeruje się przy narodzinach; dziedziczone są tylko
+wagi uczące sposobu korzystania z niej.
 
 Wszystkie sensory są **lokalne i względne** — agent nie zna swojej pozycji globalnej ani
 stanu świata. Bez tego zachowania nie byłyby emergentne, tylko odczytane z gotowej mapy.
@@ -136,6 +140,16 @@ wyjście `chwyć/upuść` przez kilka kolejnych ticków. Energię dostają wył�
 uczestnicy — bierny agent stojący obok nic nie zyskuje. To bezpośredni mutualizm: silnik
 nie przyznaje punktów za „bycie społecznym”, tylko zwykłą energię, która może przełożyć
 się na przeżycie i potomstwo.
+
+Aktywni uczestnicy tego samego zbioru tworzą tymczasową drużynę: nie mogą atakować siebie
+nawzajem, a przeciw agentom spoza drużyny zadają zwiększone obrażenia. Rozmnażanie nie
+ma ograniczeń płciowych, ale nadal wymaga dodatniego wyjścia „chęć rozmnażania” u obojga
+partnerów.
+
+Zwykłe, jednoosobowe jedzenie jest w domyślnej konfiguracji całkowicie wyłączone. Duże
+zasoby są jedynym odnawialnym źródłem energii, więc linia, która nie potrafi współpracować,
+nie może utrzymać się wyłącznie dzięki samotnemu żerowaniu. Stary wariant pozostaje
+dostępny eksperymentalnie przez jawne ustawienie `maxFood` i `foodSpawnRate` powyżej zera.
 
 `npm run assay:collaboration` ewoluuje populację, a potem porównuje te same genomy w
 identycznym środowisku w wariantach: pełnym, bez odbioru sygnału, z pamięcią zerowaną co
@@ -227,8 +241,7 @@ Pomiar (Node, 1 rdzeń, ~800 agentów, ~1500 jednostek jedzenia): **~380 ticków
 
 Punkty zaczepienia są już w kodzie:
 
-* **rozmnażanie płciowe** — `crossover()` w `genetics/mutation.ts` jest gotowe, `Agent` ma
-  pole `fatherId`,
+* dalsze eksperymenty z doborem partnerów i stabilnymi grupami społecznymi,
 * **drapieżnictwo i rywalizacja** — gen `aggression` istnieje i jest dziedziczony, brakuje
   systemu, który go czyta,
 * **nowe sensory i wyjścia** — dopisz etykietę do `SENSOR_LABELS` / `OUTPUT_LABELS`;
@@ -245,4 +258,3 @@ Punkty zaczepienia są już w kodzie:
   krawędzi nie jest widoczny po drugiej stronie, choć sensory poprawnie go widzą.
 * Rejestr linii rodowych trzyma ostatnie 4000 rekordów (`LINEAGE_CAPACITY`); pełne drzewo
   genealogiczne z całego biegu wymagałoby zapisu na dysk.
-* Rozmnażanie jest bezpłciowe — zgodnie z zakresem Milestone 3.

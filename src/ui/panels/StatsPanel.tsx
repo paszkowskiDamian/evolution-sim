@@ -18,7 +18,7 @@ export function StatsPanel({ snapshot }: { snapshot: UiSnapshot }) {
     () => ({
       population: [
         { label: 'populacja', color: '#60a5fa', values: h.map((s) => s.population) },
-        { label: 'jedzenie /10', color: '#4ade80', values: h.map((s) => s.foodCount / 10) },
+        { label: 'duże zasoby /10', color: '#f6c453', values: h.map((s) => s.cooperativeFoodCount / 10) },
       ],
       vital: [
         { label: 'śr. wiek', color: '#fbbf24', values: h.map((s) => s.avgAge) },
@@ -49,8 +49,6 @@ export function StatsPanel({ snapshot }: { snapshot: UiSnapshot }) {
       <div className="stat-grid">
         <Stat label="tick" value={snapshot.tick.toLocaleString('pl-PL')} />
         <Stat label="osobniki" value={snapshot.population} />
-        <Stat label="płeć (Ż/M)" value={`${snapshot.femaleCount} / ${snapshot.maleCount}`} />
-        <Stat label="jedzenie" value={snapshot.foodCount} />
         <Stat label="duże jedzenie" value={snapshot.cooperativeFoodCount} />
         <Stat label="pokolenie" value={snapshot.maxGeneration} />
         <Stat label="śr. wiek" value={snapshot.avgAge.toFixed(0)} />

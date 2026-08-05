@@ -84,10 +84,6 @@ export function AgentPanel({ agent, onFollow, onClear }: Props) {
           <span className="stat-value">{agent.inShelter ? 'w jaskini' : '—'}</span>
         </div>
         <div className="stat">
-          <span className="stat-label">płeć</span>
-          <span className="stat-value">{agent.gender === 1 ? '♂' : '♀'}</span>
-        </div>
-        <div className="stat">
           <span className="stat-label">wiek</span>
           <span className="stat-value">{agent.age}</span>
         </div>
@@ -171,7 +167,7 @@ export function AgentPanel({ agent, onFollow, onClear }: Props) {
         ))}
       </div>
 
-      <h3>Pamięć (stan ukryty, warstwa 0)</h3>
+      <h3>Pamięć robocza (stan ukryty, warstwa 0)</h3>
       <p className="muted small">
         Przenoszony między tickami — to jedyny mechanizm pamięci agenta.
       </p>
@@ -184,6 +180,24 @@ export function AgentPanel({ agent, onFollow, onClear }: Props) {
             style={{
               background: v < 0 ? '#f87171' : '#4ade80',
               opacity: 0.15 + Math.abs(v) * 0.85,
+            }}
+          />
+        ))}
+      </div>
+
+      <h3>Pamięć adresowalna ({agent.externalMemory.length} slotów)</h3>
+      <p className="muted small">
+        odczyt [{agent.memoryReadAddress}] = {agent.memoryReadValue.toFixed(2)} · ostatni zapis [{agent.memoryWriteAddress}]
+      </p>
+      <div className="hidden-row">
+        {agent.externalMemory.map((v, i) => (
+          <div
+            key={i}
+            className="hidden-cell"
+            title={`[${i}] ${v.toFixed(3)}`}
+            style={{
+              background: v < 0 ? '#f87171' : '#60a5fa',
+              opacity: 0.1 + Math.abs(v) * 0.9,
             }}
           />
         ))}

@@ -80,4 +80,8 @@ export interface AgentView {
   hidden: number[];
   /** Pamięć: stan ukryty warstwy rekurencyjnej, przenoszony między tickami. */
   hiddenState: number[];
+  externalMemory: number[];
+  memoryReadValue: number;
+  memoryReadAddress: number;
+  memoryWriteAddress: number;
 }

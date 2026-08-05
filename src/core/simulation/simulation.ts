@@ -76,6 +76,9 @@ export class Simulation {
    */
   async enableGpu(): Promise<boolean> {
     if (this.gpu) return true;
+    // Jawny bank pamięci jest aktualnie kontrolowany na CPU po każdym forward
+    // passie. Nie włączamy cicho ścieżki GPU o innej semantyce.
+    if (this.world.config.externalMemorySlots > 0) return false;
     const ctx = await GpuContext.request();
     if (!ctx) return false;
     this.gpu = ctx;
@@ -250,6 +253,10 @@ export class Simulation {
       outputs: Array.from(a.brain.outputs),
       hidden: Array.from(a.brain.getHiddenActivations()),
       hiddenState: Array.from(a.hiddenState),
+      externalMemory: Array.from(a.externalMemory),
+      memoryReadValue: a.memoryReadValue,
+      memoryReadAddress: a.memoryReadAddress,
+      memoryWriteAddress: a.memoryWriteAddress,
     };
   }
 
