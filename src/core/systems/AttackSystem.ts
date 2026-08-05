@@ -40,6 +40,14 @@ export class AttackSystem implements System {
       let bestD2 = Infinity;
       world.agentGrid.forEachInRadius(a.x, a.y, reach, (id, _dx, _dy, d2) => {
         if (id === a.id) return;
+        const candidate = world.agentById.get(id);
+        if (
+          candidate &&
+          a.cooperatingFoodId >= 0 &&
+          candidate.cooperatingFoodId === a.cooperatingFoodId
+        ) {
+          return;
+        }
         if (d2 < bestD2) {
           bestD2 = d2;
           targetId = id;
@@ -51,7 +59,8 @@ export class AttackSystem implements System {
       if (!target || !target.alive) continue;
 
       const maturity = ageRamp(a.age, cfg.combatMaturationTicks, cfg.juvenileCombatFactor);
-      const damage = cfg.attackDamageBase * (0.4 + a.phenotype.aggression) * maturity;
+      const teamPower = a.cooperatingFoodId >= 0 ? cfg.cooperativeCombatMultiplier : 1;
+      const damage = cfg.attackDamageBase * (0.4 + a.phenotype.aggression) * maturity * teamPower;
       target.health = Math.max(0, target.health - damage);
       a.energy -= cfg.attackEnergyCost;
       a.attackCooldown = cfg.attackCooldownTicks;

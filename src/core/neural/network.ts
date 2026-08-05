@@ -10,8 +10,9 @@ import type { SimulationConfig } from '../../config/simulationConfig';
  * muszą nic wiedzieć o kształcie konkretnej sieci.
  *
  * Pierwsza warstwa ukryta jest rekurencyjna: jej aktywacja z poprzedniego
- * ticka wraca na wejście tej samej warstwy. To JEDYNY mechanizm pamięci —
- * NIE MA tu uczenia gradientowego ani żadnej struktury "planu". Wagi
+ * ticka wraca na wejście tej samej warstwy. Oprócz tej pamięci roboczej
+ * agent ma duży, jawnie adresowany bank sterowany czterema wyjściami. NIE MA
+ * tu uczenia gradientowego ani żadnej narzuconej struktury "planu". Wagi
  * rekurencyjne pochodzą z genomu i zmieniają się wyłącznie przez mutacje
  * i dobór naturalny, więc to, co sieć "zapamiętuje" (jeśli cokolwiek),
  * jest w całości emergentne.
@@ -39,8 +40,9 @@ import type { SimulationConfig } from '../../config/simulationConfig';
  *   - rodzaj trafienia (skalar, nie one-hot — te same pasma co reszta
  *     kategorycznych sensorów w tym pliku, np. "płeć"):
  *       0 = nic (pełny zasięg bez przeszkód), -1 = ściana,
- *       -0.5 = inny agent tej samej płci (rywal), +0.5 = agent przeciwnej
- *       płci (potencjalny partner), +1 = jedzenie,
+ *       +0.5 = inny agent (każdy może być partnerem),
+ *       +0.8 = duże jedzenie wymagające grupy,
+ *       +1 = zwykłe jedzenie,
  *   - ciepło (TerrainGrid.shelterWarmthAt) w punkcie trafienia — agent
  *     "widzi" gradient schronienia W GŁĘBI pola widzenia, nie tylko we
  *     własnej pozycji.
@@ -57,7 +59,7 @@ export const SENSOR_LABELS = [
   'cos(kąt→kamień)',
   'bliskość kamienia',
   'zdrowie',
-  'płeć',
+  'aktywnie współpracuję',
   'niosę jedzenie',
   'odmienność najbliższego agenta',
   // --- sygnalizacja (patrz OUTPUT_LABELS "sygnał" + SensorSystem) ---
@@ -117,6 +119,7 @@ export const CONE_TYPE_NOTHING = 0;
 export const CONE_TYPE_WALL = -1;
 export const CONE_TYPE_AGENT_RIVAL = -0.5;
 export const CONE_TYPE_AGENT_MATE = 0.5;
+export const CONE_TYPE_COOPERATIVE_FOOD = 0.8;
 export const CONE_TYPE_FOOD = 1;
 
 export const OUTPUT_LABELS = [
@@ -131,10 +134,18 @@ export const OUTPUT_LABELS = [
   // patrz `signalEnergyCost` w EnergySystem, inaczej ewolucja zawsze
   // wybrałaby "krzycz na maksa cały czas" i kanał straciłby znaczenie.
   'sygnał',
+  'pamięć: adres odczytu',
+  'pamięć: adres zapisu',
+  'pamięć: wartość zapisu',
+  'pamięć: siła zapisu',
 ] as const;
 
 export const INPUT_COUNT = SENSOR_LABELS.length; // 50
-export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 7
+export const OUTPUT_COUNT = OUTPUT_LABELS.length; // 11
+export const MEMORY_READ_ADDRESS_OUTPUT = 7;
+export const MEMORY_WRITE_ADDRESS_OUTPUT = 8;
+export const MEMORY_WRITE_VALUE_OUTPUT = 9;
+export const MEMORY_WRITE_GATE_OUTPUT = 10;
 
 /** Zdekodowany kształt sieci danego agenta — patrz `decodeBrainShape` w genetics/genome.ts. */
 export interface BrainShape {
@@ -159,6 +170,8 @@ export interface BrainLayout {
   maxLayers: number;
   w1Offset: number;
   b1Offset: number;
+  /** Projekcja pojedynczej wartości odczytanej z dużego banku pamięci. */
+  memReadOffset: number;
   recOffset: number;
   /** Indeksowane od 1 (warstwa 0 nie ma "wejścia z poprzedniej warstwy"). */
   whOffset: number[];
@@ -173,7 +186,8 @@ export function computeBrainLayout(config: SimulationConfig): BrainLayout {
 
   const w1Offset = 0;
   const b1Offset = w1Offset + INPUT_COUNT * w;
-  const recOffset = b1Offset + w;
+  const memReadOffset = b1Offset + w;
+  const recOffset = memReadOffset + w;
   const whOffset: number[] = [];
   const bhOffset: number[] = [];
   let cursor = recOffset + w * w;
@@ -185,7 +199,7 @@ export function computeBrainLayout(config: SimulationConfig): BrainLayout {
   const w2Offset = cursor;
   const b2Offset = w2Offset + w * OUTPUT_COUNT;
 
-  return { capacityWidth: w, maxLayers, w1Offset, b1Offset, recOffset, whOffset, bhOffset, w2Offset, b2Offset };
+  return { capacityWidth: w, maxLayers, w1Offset, b1Offset, memReadOffset, recOffset, whOffset, bhOffset, w2Offset, b2Offset };
 }
 
 /**
@@ -207,7 +221,7 @@ export function brainGeneCount(config: SimulationConfig): number {
  */
 export function referenceBrainComplexity(config: SimulationConfig): number {
   const w = config.defaultLayerWidth;
-  return INPUT_COUNT * w + w + w * OUTPUT_COUNT + OUTPUT_COUNT;
+  return INPUT_COUNT * w + w + w + w * OUTPUT_COUNT + OUTPUT_COUNT;
 }
 
 export class NeuralNetwork {
@@ -227,6 +241,7 @@ export class NeuralNetwork {
 
   private readonly w1Offset: number;
   private readonly b1Offset: number;
+  private readonly memReadOffset: number;
   private readonly recOffset: number;
   private readonly whOffset: number[];
   private readonly bhOffset: number[];
@@ -245,6 +260,7 @@ export class NeuralNetwork {
     const layout = computeBrainLayout(config);
     this.w1Offset = layout.w1Offset;
     this.b1Offset = layout.b1Offset;
+    this.memReadOffset = layout.memReadOffset;
     this.recOffset = layout.recOffset;
     this.whOffset = layout.whOffset;
     this.bhOffset = layout.bhOffset;
@@ -252,7 +268,7 @@ export class NeuralNetwork {
     this.b2Offset = layout.b2Offset;
 
     // Faktyczna (nie pojemnościowa) liczba wag — do kosztu energii w EnergySystem.
-    let complexity = INPUT_COUNT * this.widths[0] + this.widths[0] + this.widths[0] * this.widths[0];
+    let complexity = INPUT_COUNT * this.widths[0] + this.widths[0] + this.widths[0] + this.widths[0] * this.widths[0];
     for (let l = 1; l < this.layerCount; l++) {
       complexity += this.widths[l - 1] * this.widths[l] + this.widths[l];
     }
@@ -266,7 +282,7 @@ export class NeuralNetwork {
    * czytany w całości jako h(t-1) PRZED nadpisaniem, żeby żaden neuron
    * nie zobaczył częściowo już zaktualizowanego stanu.
    */
-  forward(inputs: Float32Array, hiddenState: Float32Array): Float32Array {
+  forward(inputs: Float32Array, hiddenState: Float32Array, memoryReadValue = 0): Float32Array {
     const g = this.genes;
     const cw = this.capacityWidth;
     const w0 = this.widths[0];
@@ -274,6 +290,7 @@ export class NeuralNetwork {
 
     for (let j = 0; j < w0; j++) {
       let sum = g[this.b1Offset + j];
+      sum += g[this.memReadOffset + j] * memoryReadValue;
       const inBase = this.w1Offset + j * INPUT_COUNT;
       for (let i = 0; i < INPUT_COUNT; i++) sum += g[inBase + i] * inputs[i];
       const recBase = this.recOffset + j * cw;

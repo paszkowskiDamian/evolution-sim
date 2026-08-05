@@ -1,5 +1,13 @@
 import type { SimulationConfig } from '../../config/simulationConfig';
-import { NeuralNetwork, INPUT_COUNT, type BrainShape } from '../neural/network';
+import {
+  NeuralNetwork,
+  INPUT_COUNT,
+  MEMORY_READ_ADDRESS_OUTPUT,
+  MEMORY_WRITE_ADDRESS_OUTPUT,
+  MEMORY_WRITE_VALUE_OUTPUT,
+  MEMORY_WRITE_GATE_OUTPUT,
+  type BrainShape,
+} from '../neural/network';
 import { decodePhenotype, decodeBrainShape, type Phenotype } from '../genetics/genome';
 
 /**
@@ -42,6 +50,8 @@ export class Agent {
   carriedCount = 0;
   /** Ticki pozostałe do możliwości ponownego chwytu/upuszczenia. */
   carryCooldown = 0;
+  /** ID dużego zasobu, przy którym agent pracuje w bieżącym ticku; -1 poza pracą. */
+  cooperatingFoodId = -1;
 
   // --- dziedziczność ---
   readonly genome: Float32Array;
@@ -71,6 +81,11 @@ export class Agent {
    * użyteczną dynamikę tego stanu, nigdy sam stan.
    */
   readonly hiddenState: Float32Array;
+  /** Duży, jawnie adresowany bank pamięci — stan życia, nie część genomu. */
+  readonly externalMemory: Float32Array;
+  memoryReadValue = 0;
+  memoryReadAddress = 0;
+  memoryWriteAddress = 0;
 
   constructor(
     id: number,
@@ -93,6 +108,7 @@ export class Agent {
     this.brainShape = shape;
     this.brain = new NeuralNetwork(genome, config, shape);
     this.hiddenState = new Float32Array(this.brain.recurrentWidth);
+    this.externalMemory = new Float32Array(config.externalMemorySlots);
     this.phenotype = decodePhenotype(genome, config);
     this.carriedItems = new Int8Array(config.maxCarryItems).fill(-1);
     this.x = opts.x;
@@ -114,5 +130,28 @@ export class Agent {
    */
   get fitness(): number {
     return this.childrenCount * 10 + this.age / 100 + this.foodEaten;
+  }
+
+  /** Stosuje wyjścia kontrolera pamięci po forward passie, z efektem od następnego ticka. */
+  applyExternalMemoryControls(enabled: boolean): void {
+    const memory = this.externalMemory;
+    if (!enabled || memory.length === 0) {
+      memory.fill(0);
+      this.memoryReadValue = 0;
+      this.memoryReadAddress = 0;
+      this.memoryWriteAddress = 0;
+      return;
+    }
+
+    const addressOf = (value: number): number =>
+      Math.min(memory.length - 1, Math.floor(((Math.max(-1, Math.min(1, value)) + 1) * 0.5) * memory.length));
+    this.memoryWriteAddress = addressOf(this.brain.outputs[MEMORY_WRITE_ADDRESS_OUTPUT]);
+    const gate = Math.max(0, Math.min(1, this.brain.outputs[MEMORY_WRITE_GATE_OUTPUT]));
+    if (gate > 0) {
+      const old = memory[this.memoryWriteAddress];
+      memory[this.memoryWriteAddress] = old + (this.brain.outputs[MEMORY_WRITE_VALUE_OUTPUT] - old) * gate;
+    }
+    this.memoryReadAddress = addressOf(this.brain.outputs[MEMORY_READ_ADDRESS_OUTPUT]);
+    this.memoryReadValue = memory[this.memoryReadAddress];
   }
 }

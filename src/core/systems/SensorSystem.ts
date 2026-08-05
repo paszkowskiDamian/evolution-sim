@@ -8,10 +8,11 @@ import {
   VISION_CONE_FOV,
   CONE_TYPE_NOTHING,
   CONE_TYPE_WALL,
-  CONE_TYPE_AGENT_RIVAL,
   CONE_TYPE_AGENT_MATE,
+  CONE_TYPE_COOPERATIVE_FOOD,
   CONE_TYPE_FOOD,
 } from '../neural/network';
+import { FOOD_COOPERATIVE } from '../world/food';
 
 /**
  * Zbiera wejścia sieci neuronowej każdego agenta.
@@ -58,7 +59,6 @@ export class SensorSystem implements System {
       if (!a.alive) continue;
       const vision = a.phenotype.visionRadius;
       const input = a.lastInputs;
-      const myGender = a.phenotype.gender;
 
       input[0] = 1; // bias
       input[1] = (a.energy / cfg.maxEnergy) * 2 - 1;
@@ -83,7 +83,8 @@ export class SensorSystem implements System {
         if (idx < 0 || d2 >= this.coneBestDist2[idx]) return;
         if (!terrain.hasLineOfSight(a.x, a.y, dx, dy)) return;
         this.coneBestDist2[idx] = d2;
-        this.coneBestType[idx] = CONE_TYPE_FOOD;
+        this.coneBestType[idx] =
+          world.food.kind[_id] === FOOD_COOPERATIVE ? CONE_TYPE_COOPERATIVE_FOOD : CONE_TYPE_FOOD;
         this.coneBestDx[idx] = dx;
         this.coneBestDy[idx] = dy;
       });
@@ -108,7 +109,7 @@ export class SensorSystem implements System {
         // ticku (BrainSystem jeszcze nie policzył nowego forward passu), więc
         // to zawsze sygnał z t-1, tak jak pamięć rekurencyjna w network.ts.
         // Sygnał NIE jest ograniczony stożkiem — krzyk słychać zza pleców.
-        const loudness = Math.max(0, other.brain.outputs[6]);
+        const loudness = cfg.signalReceptionEnabled ? Math.max(0, other.brain.outputs[6]) : 0;
         if (loudness > 0) {
           const score = loudness * (1 - Math.sqrt(d2) / vision);
           this.signalCandidates.add(id, dx, dy, d2, score);
@@ -118,7 +119,7 @@ export class SensorSystem implements System {
         if (idx < 0 || d2 >= this.coneBestDist2[idx]) return;
         if (!terrain.hasLineOfSight(a.x, a.y, dx, dy)) return;
         this.coneBestDist2[idx] = d2;
-        this.coneBestType[idx] = other.phenotype.gender !== myGender ? CONE_TYPE_AGENT_MATE : CONE_TYPE_AGENT_RIVAL;
+        this.coneBestType[idx] = CONE_TYPE_AGENT_MATE;
         this.coneBestDx[idx] = dx;
         this.coneBestDy[idx] = dy;
       });
@@ -153,8 +154,8 @@ export class SensorSystem implements System {
       // --- własne zdrowie ---
       input[10] = (a.health / a.phenotype.maxHealth) * 2 - 1;
 
-      // --- własna płeć ---
-      input[11] = myGender === 1 ? 1 : -1;
+      // --- czy jestem członkiem aktywnej drużyny przy dużym zasobie ---
+      input[11] = a.cooperatingFoodId >= 0 ? 1 : -1;
 
       // --- czy wśród niesionych przedmiotów jest jedzenie ---
       let carryingFood = false;

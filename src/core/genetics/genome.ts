@@ -121,7 +121,8 @@ export function createRandomGenome(config: SimulationConfig, rng: Rng): Float32A
   const shape = decodeBrainShape(genome, config);
 
   fill(layout.w1Offset, layout.b1Offset, fanInStddev(INPUT_COUNT)); // wejście -> warstwa 0
-  fill(layout.b1Offset, layout.recOffset, BIAS_STDDEV); // bias warstwy 0
+  fill(layout.b1Offset, layout.memReadOffset, BIAS_STDDEV); // bias warstwy 0
+  fill(layout.memReadOffset, layout.recOffset, BIAS_STDDEV); // odczyt pamięci -> warstwa 0
   fill(layout.recOffset, layout.recOffset + w * w, fanInStddev(shape.widths[0])); // rekurencja warstwy 0
   for (let k = 1; k < layout.maxLayers; k++) {
     // Blok k czyta z warstwy k-1, więc jego fan-in to RZECZYWISTA

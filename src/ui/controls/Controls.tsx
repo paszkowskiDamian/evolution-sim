@@ -19,7 +19,7 @@ interface Props {
 
 const EDIT_TOOLS: Array<{ key: EditTool; label: string }> = [
   { key: 'none', label: '✋ Nawiguj' },
-  { key: 'addFood', label: '🌿 Dodaj jedzenie' },
+  { key: 'addCooperativeFood', label: '🌟 Dodaj duże jedzenie' },
   { key: 'removeFood', label: '🚫 Usuń jedzenie' },
   { key: 'addWall', label: '🧱 Buduj ścianę' },
   { key: 'removeWall', label: '⛏ Kop ścianę' },
@@ -41,9 +41,10 @@ const TUNABLE: Array<{
   // wynikiem). Na żywo, bez restartu — to zwykły próg czytany co tick.
   { key: 'minPopulation', label: 'awaryjne dosiewanie od (0 = wyłączone)', min: 0, max: 200, step: 5 },
   { key: 'worldSize', label: 'rozmiar świata', min: 800, max: 8000, step: 100, restart: true },
-  { key: 'foodSpawnRate', label: 'przyrost jedzenia / tick', min: 0, max: 60, step: 1 },
-  { key: 'foodEnergy', label: 'energia z jedzenia', min: 5, max: 80, step: 1 },
-  { key: 'mutationChance', label: 'szansa mutacji', min: 0, max: 0.25, step: 0.005 },
+  { key: 'cooperativeFoodSpawnRate', label: 'przyrost dużego jedzenia / tick', min: 0, max: 0.2, step: 0.01 },
+  { key: 'cooperativeFoodEnergy', label: 'energia dla współpracownika', min: 5, max: 120, step: 1 },
+  { key: 'cooperativeFoodWorkTicks', label: 'ticki wspólnej pracy', min: 1, max: 100, step: 1 },
+  { key: 'mutationChance', label: 'szansa mutacji / gen', min: 0, max: 0.01, step: 0.0001 },
   { key: 'mutationDelta', label: 'amplituda mutacji', min: 0.01, max: 1, step: 0.01 },
   { key: 'baseMetabolism', label: 'metabolizm bazowy', min: 0.005, max: 0.4, step: 0.005 },
   { key: 'maxAge', label: 'maks. wiek', min: 500, max: 20000, step: 100 },
@@ -55,6 +56,7 @@ const TUNABLE: Array<{
   // (i pamięć na populację) potrafi urosnąć do setek MB — to świadomy
   // kompromis eksperymentatora, nie awaria.
   { key: 'maxLayerWidth', label: 'maks. szerokość warstwy (= pamięć agenta)', min: 4, max: 96, step: 1, restart: true },
+  { key: 'externalMemorySlots', label: 'sloty dużej pamięci', min: 0, max: 512, step: 16, restart: true },
   { key: 'terrainCellSize', label: 'rozmiar komórki terenu', min: 10, max: 60, step: 1, restart: true },
   { key: 'caveFillProbability', label: 'gęstość ziarna jaskiń', min: 0.3, max: 0.6, step: 0.01, restart: true },
   { key: 'caveIterations', label: 'przebiegi automatu jaskiń', min: 1, max: 8, step: 1, restart: true },
@@ -65,10 +67,8 @@ const TUNABLE: Array<{
   { key: 'buildRockThreshold', label: 'kamieni do zbudowania ściany', min: 1, max: 10, step: 1 },
   { key: 'attackRange', label: 'zasięg ataku', min: 1, max: 40, step: 1 },
   { key: 'attackDamageBase', label: 'obrażenia ataku', min: 0, max: 60, step: 1 },
+  { key: 'cooperativeCombatMultiplier', label: 'siła bojowa współpracowników', min: 1, max: 4, step: 0.1 },
   { key: 'matingRange', label: 'zasięg szukania partnera', min: 1, max: 100, step: 1 },
-  // Wpływa tylko na NOWE narodziny (fenotyp dekodowany raz, przy narodzinach)
-  // — nie zmieni płci już żyjących agentów, ale efekt widać bez restartu.
-  { key: 'genderMaleThreshold', label: 'próg płci (+ = więcej samic)', min: -1, max: 1, step: 0.05 },
   { key: 'speedMaturationTicks', label: 'dojrzewanie prędkości (ticki)', min: 0, max: 3000, step: 50 },
   { key: 'combatMaturationTicks', label: 'dojrzewanie bojowe (ticki)', min: 0, max: 3000, step: 50 },
   { key: 'foodClusterDriftSpeed', label: 'prędkość dryfu klastrów', min: 0, max: 6, step: 0.1 },

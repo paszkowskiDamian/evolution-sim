@@ -2,7 +2,7 @@ import type { SimulationConfig } from '../../config/simulationConfig';
 import { Rng } from '../utils/rng';
 import { SpatialGrid } from '../utils/spatialHash';
 import { Agent } from '../agents/agent';
-import { FoodField } from './food';
+import { FoodField, FOOD_COOPERATIVE, FOOD_NORMAL, type FoodKind } from './food';
 import { ItemField } from './items';
 import { TerrainGrid, TILE_ROCK, TILE_EMPTY } from './terrain';
 import { createRandomGenome, genomeLength, bioGeneOffset, BIO_GENES } from '../genetics/genome';
@@ -17,6 +17,8 @@ export interface TickEvents {
   deathsByAge: number;
   deathsByCombat: number;
   foodEaten: number;
+  cooperativeHarvests: number;
+  cooperativeParticipants: number;
   itemsPickedUp: number;
   itemsDropped: number;
   tilesDug: number;
@@ -74,6 +76,16 @@ export interface BirthEvent {
   y: number;
 }
 
+/** Udane wspólne otwarcie dużego zasobu — dane obserwacyjne, bez wpływu na selekcję. */
+export interface CooperationEvent {
+  tick: number;
+  foodId: number;
+  x: number;
+  y: number;
+  participantIds: number[];
+  energyPerParticipant: number;
+}
+
 /**
  * Świat — jedyny właściciel stanu symulacji.
  *
@@ -114,6 +126,8 @@ export class World {
     deathsByAge: 0,
     deathsByCombat: 0,
     foodEaten: 0,
+    cooperativeHarvests: 0,
+    cooperativeParticipants: 0,
     itemsPickedUp: 0,
     itemsDropped: 0,
     tilesDug: 0,
@@ -143,6 +157,8 @@ export class World {
    * `combatEvents` — czysto wizualne, core/ nigdy tego nie czyta z powrotem.
    */
   readonly birthEvents: BirthEvent[] = [];
+  /** Ostatnie wspólne zbiory; używane przez assay i przyszłą wizualizację. */
+  readonly cooperationEvents: CooperationEvent[] = [];
 
   /**
    * Kolejka narodzin: ReproductionSystem decyduje KTO się rozmnaża,
@@ -170,7 +186,7 @@ export class World {
     this.config = config;
     this.rng = new Rng(config.seed);
     this.foodRng = new Rng(config.seed ^ 0x5f356495);
-    this.food = new FoodField(config.maxFood);
+    this.food = new FoodField(config.maxFood + config.maxCooperativeFood);
     this.items = new ItemField(config.maxLooseRocks);
     this.terrain = new TerrainGrid(config.worldSize, config.terrainCellSize);
     // Rozmiar komórki dobrany pod typowy promień zapytania — 1 pierścień
@@ -200,6 +216,7 @@ export class World {
     this.lineage.length = 0;
     this.combatEvents.length = 0;
     this.birthEvents.length = 0;
+    this.cooperationEvents.length = 0;
     this.pendingBirths.length = 0;
     this.nextAgentId = 1;
     this.maxGeneration = 0;
@@ -241,6 +258,9 @@ export class World {
     // Startowy zapas jedzenia, żeby pierwsze pokolenie miało czego szukać.
     for (let i = 0; i < this.config.maxFood * 0.35; i++) {
       this.spawnFood();
+    }
+    for (let i = 0; i < this.config.maxCooperativeFood * 0.35; i++) {
+      this.spawnFood(FOOD_COOPERATIVE);
     }
   }
 
@@ -352,10 +372,16 @@ export class World {
    * w ścianę LUB w schronienie; przy typowych rozmiarach płatów/gór prawie
    * zawsze wystarcza pierwsza próba.
    */
-  spawnFood(): number {
-    if (this.food.isFull) return -1;
+  spawnFood(kind: FoodKind = FOOD_NORMAL): number {
     const cfg = this.config;
     const MAX_ATTEMPTS = 20;
+    // Nawet przy pełnej pojemności wykonujemy identyczne losowanie miejsca.
+    // Dzięki temu egzogeniczny strumień środowiska nie przesuwa się tylko
+    // dlatego, że jedna badana populacja zjadła więcej niż druga.
+    const atKindCapacity =
+      kind === FOOD_COOPERATIVE
+        ? this.food.cooperativeCount >= cfg.maxCooperativeFood
+        : this.food.normalCount >= cfg.maxFood;
 
     const cluster = this.clusters[this.foodRng.int(this.clusters.length)];
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -364,7 +390,10 @@ export class World {
       const dist = Math.sqrt(this.foodRng.next()) * cfg.foodClusterRadius;
       const x = wrap(cluster.x + Math.cos(angle) * dist, cfg.worldSize);
       const y = wrap(cluster.y + Math.sin(angle) * dist, cfg.worldSize);
-      if (!this.terrain.isSolidAt(x, y) && !this.isInShelter(x, y)) return this.food.spawn(x, y);
+      if (!this.terrain.isSolidAt(x, y) && !this.isInShelter(x, y)) {
+        if (atKindCapacity || this.food.isFull) return -1;
+        return this.food.spawn(x, y, kind);
+      }
     }
     return -1;
   }
@@ -421,10 +450,17 @@ export class World {
 
   /** Stawia jedno jedzenie w danym miejscu. `false`, jeśli miejsce jest zajęte/nielegalne. */
   addFoodAt(x: number, y: number): boolean {
-    if (this.food.isFull) return false;
+    if (this.food.isFull || this.food.normalCount >= this.config.maxFood) return false;
     if (this.terrain.isSolidAt(x, y)) return false;
     if (this.isInShelter(x, y)) return false;
     return this.food.spawn(x, y) >= 0;
+  }
+
+  /** Stawia zasób kooperacyjny; głównie narzędzie deterministycznych testów/assay. */
+  addCooperativeFoodAt(x: number, y: number): boolean {
+    if (this.food.isFull || this.food.cooperativeCount >= this.config.maxCooperativeFood) return false;
+    if (this.terrain.isSolidAt(x, y) || this.isInShelter(x, y)) return false;
+    return this.food.spawn(x, y, FOOD_COOPERATIVE) >= 0;
   }
 
   /** Usuwa najbliższe jedzenie w promieniu `radius`. `true`, jeśli coś usunięto. */
@@ -479,6 +515,8 @@ export class World {
     e.deathsByAge = 0;
     e.deathsByCombat = 0;
     e.foodEaten = 0;
+    e.cooperativeHarvests = 0;
+    e.cooperativeParticipants = 0;
     e.itemsPickedUp = 0;
     e.itemsDropped = 0;
     e.tilesDug = 0;
@@ -488,5 +526,12 @@ export class World {
     e.swapMutations = 0;
     e.bigMutations = 0;
     e.reseeded = 0;
+  }
+
+  recordCooperationEvent(event: CooperationEvent): void {
+    this.cooperationEvents.push(event);
+    if (this.cooperationEvents.length > 1000) {
+      this.cooperationEvents.splice(0, this.cooperationEvents.length - 1000);
+    }
   }
 }
