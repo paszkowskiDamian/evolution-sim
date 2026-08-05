@@ -1,4 +1,4 @@
-import { Assets, type Texture } from 'pixi.js';
+import { Assets, Graphics, type Renderer, type Texture } from 'pixi.js';
 
 /**
  * Renderer-owned bitmap assets. Static `new URL(..., import.meta.url)` calls
@@ -32,6 +32,12 @@ export interface SpriteTextures {
   grass: Texture;
 }
 
+export interface ClassicTextures {
+  agent: Texture;
+  food: Texture;
+  rock: Texture;
+}
+
 async function loadTexture(url: string): Promise<Texture> {
   const texture = await Assets.load<Texture>(url);
   texture.source.scaleMode = 'nearest';
@@ -50,6 +56,42 @@ export async function loadSpriteTextures(): Promise<SpriteTextures> {
   ]);
 
   return { agentBody, agentDetails, food, rock, stone, grass };
+}
+
+/**
+ * The original renderer artwork, kept intact for the live Classic mode.
+ * White procedural textures share batches and receive their colours via tint.
+ */
+export function createClassicTextures(renderer: Renderer): ClassicTextures {
+  const agentGfx = new Graphics();
+  agentGfx
+    .moveTo(32, 32 - 32 * 0.55)
+    .lineTo(80, 32)
+    .lineTo(32, 32 + 32 * 0.55)
+    .fill(0xffffff);
+  agentGfx.circle(32, 32, 32).fill(0xffffff);
+
+  const foodGfx = new Graphics();
+  foodGfx.circle(16, 16, 16).fill(0xffffff);
+
+  const rockGfx = new Graphics();
+  rockGfx
+    .moveTo(14 * 0.2, 14 * 1.7)
+    .lineTo(14 * 0.9, 14 * 0.2)
+    .lineTo(14 * 1.7, 14 * 0.5)
+    .lineTo(14 * 1.8, 14 * 1.5)
+    .lineTo(14 * 1.1, 14 * 1.9)
+    .closePath()
+    .fill(0xffffff);
+
+  const agent = renderer.generateTexture({ target: agentGfx, resolution: 2 });
+  const food = renderer.generateTexture({ target: foodGfx, resolution: 2 });
+  const rock = renderer.generateTexture({ target: rockGfx, resolution: 2 });
+
+  agentGfx.destroy();
+  foodGfx.destroy();
+  rockGfx.destroy();
+  return { agent, food, rock };
 }
 
 // Pixel measurements of the extracted art. Scale helpers keep the previous
@@ -72,4 +114,16 @@ export function foodScaleFor(radius: number): number {
 
 export function rockScaleFor(radius: number): number {
   return radius / ROCK_RADIUS_PX;
+}
+
+export function classicAgentScaleFor(radius: number): number {
+  return radius / 32;
+}
+
+export function classicFoodScaleFor(radius: number): number {
+  return radius / 16;
+}
+
+export function classicRockScaleFor(radius: number): number {
+  return radius / 14;
 }

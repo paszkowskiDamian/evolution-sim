@@ -55,7 +55,7 @@ src/
   renderer/
     pixi/        PixiRenderer              — pule sprite'ów, batching
     camera/      Camera                    — czysta matematyka, bez DOM
-    sprites/     textures                  — tekstury generowane raz
+    sprites/     textures + assets         — proceduralny Classic i bitmapowe Sprites
   ui/            panele, wykresy, kontrolki
   shared/        typy współdzielone
 ```
@@ -200,6 +200,7 @@ Pomiar (Node, 1 rdzeń, ~800 agentów, ~1500 jednostek jedzenia): **~380 ticków
 
 * przeciąganie — przesuwanie kamery
 * kółko myszy — zoom w punkcie kursora
+* `Classic / Sprites` — przełącza wygląd na żywo (domyślnie `Sprites`); wybór jest pamiętany lokalnie
 * kliknięcie agenta — podgląd jego stanu, genów i aktywacji sieci
 * `Śledź` — kamera podąża za osobnikiem
 * suwaki bez gwiazdki działają na żywo, oznaczone `*` wymagają restartu świata
@@ -224,6 +225,10 @@ Punkty zaczepienia są już w kodzie:
 
 ## Znane ograniczenia
 
+* Bitmapy `path`, `water`, `snow`, trzy fazy rośliny i `storage-crate` są dołączone wyłącznie
+  jako zasoby przyszłych mechanik. Renderer ich nie pokazuje, ponieważ bieżący stan `core/`
+  nie zawiera jeszcze ścieżek, wody, śniegu, drzew/roślin ani skrzyń — dekorowanie nimi świata
+  byłoby fałszywą wizualizacją danych, które nie istnieją.
 * Świat jest torusem (`wrapEdges`), ale renderer rysuje tylko jedną kopię — obiekt tuż przy
   krawędzi nie jest widoczny po drugiej stronie, choć sensory poprawnie go widzą.
 * Rejestr linii rodowych trzyma ostatnie 4000 rekordów (`LINEAGE_CAPACITY`); pełne drzewo
