@@ -3,23 +3,22 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Symulacja ewolucji sztucznego życia — genom, sieć neuronowa i dobór naturalny",
+  "description": "A tiny shared 3D world for browser-local language-model agents and one human player",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "headless": "tsx scripts/headless.ts",
-    "evolve": "tsx scripts/evolve.ts",
-    "assay:collaboration": "tsx scripts/collaboration-assay.ts",
-    "test:determinism": "tsx scripts/determinism.test.ts",
-    "test:collaboration": "tsx scripts/collaboration.test.ts",
-    "test:gpu-shader": "tsx scripts/gpu-shader-check.ts"
+    "test:sandbox": "tsx scripts/sandbox.test.ts",
+    "legacy:headless": "tsx scripts/headless.ts",
+    "legacy:test": "tsx scripts/determinism.test.ts && tsx scripts/collaboration.test.ts"
   },
   "dependencies": {
+    "@types/three": "^0.185.4",
     "pixi.js": "^8.19.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
