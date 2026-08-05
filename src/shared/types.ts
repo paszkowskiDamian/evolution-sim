@@ -3,6 +3,7 @@ export interface StatsSample {
   tick: number;
   population: number;
   foodCount: number;
+  cooperativeFoodCount: number;
   avgAge: number;
   avgEnergy: number;
   avgFitness: number;
@@ -16,6 +17,7 @@ export interface StatsSample {
   foodEaten: number;
   mutations: number;
   attacks: number;
+  cooperativeHarvests: number;
   /** Ułamek populacji niosącej cokolwiek w danym momencie próbkowania. */
   carryingFraction: number;
   /** Średni dystans genetyczny w losowej próbce par — miara różnorodności. */
@@ -32,6 +34,8 @@ export interface CumulativeStats {
   totalBirths: number;
   totalDeaths: number;
   totalFoodEaten: number;
+  totalCooperativeHarvests: number;
+  totalCooperativeParticipants: number;
   totalMutations: number;
   totalPickups: number;
   totalDrops: number;
@@ -39,6 +43,8 @@ export interface CumulativeStats {
   totalTilesBuilt: number;
   totalAttacks: number;
   totalDeathsByCombat: number;
+  /** Awaryjni potomkowie PopulationGuardSystem — nie są prawdziwymi narodzinami. */
+  totalReseeded: number;
 }
 
 /** Widok stanu agenta dla UI — bez wycieku referencji do obiektów silnika. */
@@ -74,4 +80,8 @@ export interface AgentView {
   hidden: number[];
   /** Pamięć: stan ukryty warstwy rekurencyjnej, przenoszony między tickami. */
   hiddenState: number[];
+  externalMemory: number[];
+  memoryReadValue: number;
+  memoryReadAddress: number;
+  memoryWriteAddress: number;
 }

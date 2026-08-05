@@ -25,6 +25,8 @@ npm run typecheck
 npm run headless          # bieg symulacji w Node, bez przeglądarki
 npm run headless -- --ticks 50000 --seed 7
 npm run test:determinism  # testy determinizmu i zdrowia symulacji
+npm run test:collaboration # deterministyczny test mechaniki wspólnego zasobu
+npm run assay:collaboration -- --evolutionTicks 30000 --assayTicks 6000
 ```
 
 `npm run headless` istnieje po to, żeby **udowodnić separację warstw** — jeśli kiedykolwiek
@@ -107,13 +109,17 @@ zamiana dwóch genów miejscami, duża mutacja przepisująca fragment genomu.
 
 ## Sieć neuronowa
 
-MLP: `12 wejść → warstwa ukryta (tanh) → 3 wyjścia (tanh)`. Wagi pochodzą wprost z genomu —
-sieć **nie kopiuje** wag, operuje na widoku tej samej tablicy.
+Topologia MLP jest ewoluowalna (4–10 warstw, 4–16 neuronów domyślnie), a pierwsza warstwa
+jest rekurencyjna. Wagi pochodzą wprost z genomu — sieć **nie kopiuje** wag, operuje na
+widoku tej samej tablicy. Sensory obejmują stan ciała, sygnały, przedmioty i 11-promieniowy
+stożek widzenia. Wyjścia sterują ruchem, rozmnażaniem, przedmiotami, walką, jedzeniem,
+sygnałem oraz pamięcią adresowalną.
 
-**Wejścia:** bias, energia, wiek, prędkość, sin/cos kąta do najbliższego jedzenia, bliskość
-jedzenia, sin/cos kąta do najbliższego agenta, bliskość agenta, zagęszczenie lokalne, szum.
-
-**Wyjścia:** obrót, ruch, chęć rozmnażania.
+Każdy agent ma dodatkowo 128-slotowy bank pamięci, większy od wektora sensorów. Bank nie
+jest dopisany do wejść sensorycznych: sieć wystawia adres odczytu, adres zapisu, wartość
+i siłę zapisu, a pojedynczy odczyt jest projektowany bezpośrednio do pierwszej warstwy
+ukrytej w następnym ticku. Stan pamięci zeruje się przy narodzinach; dziedziczone są tylko
+wagi uczące sposobu korzystania z niej.
 
 Wszystkie sensory są **lokalne i względne** — agent nie zna swojej pozycji globalnej ani
 stanu świata. Bez tego zachowania nie byłyby emergentne, tylko odczytane z gotowej mapy.
@@ -125,6 +131,31 @@ stanu świata. Bez tego zachowania nie byłyby emergentne, tylko odczytane z got
 `fitness` w kodzie jest **tylko miarą opisową** dla wykresów. Nic jej nie optymalizuje,
 żaden system jej nie czyta. Selekcja odbywa się wyłącznie przez to, kto zdąży się rozmnożyć
 przed śmiercią.
+
+## Współpraca i test społeczny
+
+Złote, duże jednostki jedzenia są widoczne jako osobny rodzaj zasobu, ale nie da się ich
+zjeść ani podnieść samotnie. Co najmniej dwóch agentów musi stać w zasięgu i utrzymać
+wyjście `chwyć/upuść` przez kilka kolejnych ticków. Energię dostają wyłącznie faktyczni
+uczestnicy — bierny agent stojący obok nic nie zyskuje. To bezpośredni mutualizm: silnik
+nie przyznaje punktów za „bycie społecznym”, tylko zwykłą energię, która może przełożyć
+się na przeżycie i potomstwo.
+
+Aktywni uczestnicy tego samego zbioru tworzą tymczasową drużynę: nie mogą atakować siebie
+nawzajem, a przeciw agentom spoza drużyny zadają zwiększone obrażenia. Rozmnażanie nie
+ma ograniczeń płciowych, ale nadal wymaga dodatniego wyjścia „chęć rozmnażania” u obojga
+partnerów.
+
+Zwykłe, jednoosobowe jedzenie jest w domyślnej konfiguracji całkowicie wyłączone. Duże
+zasoby są jedynym odnawialnym źródłem energii, więc linia, która nie potrafi współpracować,
+nie może utrzymać się wyłącznie dzięki samotnemu żerowaniu. Stary wariant pozostaje
+dostępny eksperymentalnie przez jawne ustawienie `maxFood` i `foodSpawnRate` powyżej zera.
+
+`npm run assay:collaboration` ewoluuje populację, a potem porównuje te same genomy w
+identycznym środowisku w wariantach: pełnym, bez odbioru sygnału, z pamięcią zerowaną co
+tick, bez dużego jedzenia oraz samotnie. Sam fakt wspólnego zbioru dowodzi działania
+mechaniki; przewaga pełnego wariantu nad ablacjami jest dopiero dowodem, że wyewoluowana
+strategia rzeczywiście korzysta z komunikacji lub pamięci.
 
 ---
 
@@ -210,8 +241,7 @@ Pomiar (Node, 1 rdzeń, ~800 agentów, ~1500 jednostek jedzenia): **~380 ticków
 
 Punkty zaczepienia są już w kodzie:
 
-* **rozmnażanie płciowe** — `crossover()` w `genetics/mutation.ts` jest gotowe, `Agent` ma
-  pole `fatherId`,
+* dalsze eksperymenty z doborem partnerów i stabilnymi grupami społecznymi,
 * **drapieżnictwo i rywalizacja** — gen `aggression` istnieje i jest dziedziczony, brakuje
   systemu, który go czyta,
 * **nowe sensory i wyjścia** — dopisz etykietę do `SENSOR_LABELS` / `OUTPUT_LABELS`;
@@ -228,4 +258,3 @@ Punkty zaczepienia są już w kodzie:
   krawędzi nie jest widoczny po drugiej stronie, choć sensory poprawnie go widzą.
 * Rejestr linii rodowych trzyma ostatnie 4000 rekordów (`LINEAGE_CAPACITY`); pełne drzewo
   genealogiczne z całego biegu wymagałoby zapisu na dysk.
-* Rozmnażanie jest bezpłciowe — zgodnie z zakresem Milestone 3.

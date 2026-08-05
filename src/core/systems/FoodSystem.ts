@@ -3,6 +3,7 @@ import type { World } from '../world/world';
 import type { SimulationConfig } from '../../config/simulationConfig';
 import type { Agent } from '../agents/agent';
 import { FOOD_TYPE } from '../world/items';
+import { FOOD_COOPERATIVE } from '../world/food';
 
 /**
  * Jedzenie: konsumpcja + odnawianie zasobu.
@@ -42,8 +43,9 @@ export class FoodSystem implements System {
       let ateFromGround = false;
       world.foodGrid.forEachInRadius(a.x, a.y, reach, (foodId) => {
         if (food.alive[foodId] === 0) return; // ktoś zjadł w tym samym ticku
+        if (food.kind[foodId] === FOOD_COOPERATIVE) return; // wymaga CooperativeFoodSystem
         food.remove(foodId);
-        this.consume(a, cfg, world);
+        consumeFoodEnergy(a, cfg.foodEnergy, cfg, world);
         ateFromGround = true;
       });
 
@@ -56,7 +58,7 @@ export class FoodSystem implements System {
           a.carriedItems[i] = a.carriedItems[a.carriedCount - 1];
           a.carriedItems[a.carriedCount - 1] = -1;
           a.carriedCount--;
-          this.consume(a, cfg, world);
+          consumeFoodEnergy(a, cfg.foodEnergy, cfg, world);
           break;
         }
       }
@@ -70,18 +72,31 @@ export class FoodSystem implements System {
     for (let i = 0; i < toSpawn; i++) {
       world.spawnFood();
     }
-  }
 
-  private consume(a: Agent, cfg: SimulationConfig, world: World): void {
-    const before = a.energy;
-    const raw = before + cfg.foodEnergy;
-    const overflow = Math.max(0, raw - cfg.maxEnergy);
-    a.energy = Math.min(cfg.maxEnergy, raw);
-    a.energyGained += a.energy - before;
-    a.foodEaten++;
-    world.events.foodEaten++;
-    if (overflow > 0) {
-      a.health = Math.max(0, a.health - overflow * cfg.overfeedHealthPenalty);
+    let cooperativeToSpawn = Math.floor(cfg.cooperativeFoodSpawnRate);
+    const cooperativeFractional = cfg.cooperativeFoodSpawnRate - cooperativeToSpawn;
+    if (cooperativeFractional > 0 && world.foodRng.chance(cooperativeFractional)) cooperativeToSpawn++;
+    for (let i = 0; i < cooperativeToSpawn; i++) {
+      world.spawnFood(FOOD_COOPERATIVE);
     }
+  }
+}
+
+/** Wspólna, spójna semantyka jedzenia dla zwykłych i kooperacyjnych zasobów. */
+export function consumeFoodEnergy(
+  a: Agent,
+  energy: number,
+  cfg: SimulationConfig,
+  world: World,
+): void {
+  const before = a.energy;
+  const raw = before + energy;
+  const overflow = Math.max(0, raw - cfg.maxEnergy);
+  a.energy = Math.min(cfg.maxEnergy, raw);
+  a.energyGained += a.energy - before;
+  a.foodEaten++;
+  world.events.foodEaten++;
+  if (overflow > 0) {
+    a.health = Math.max(0, a.health - overflow * cfg.overfeedHealthPenalty);
   }
 }

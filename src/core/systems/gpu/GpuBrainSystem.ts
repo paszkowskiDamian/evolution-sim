@@ -79,7 +79,9 @@ export class GpuBrainSystem implements System {
       const a = alive[i];
       genomes.set(a.genome, i * genomeLen);
       inputs.set(a.lastInputs, i * INPUT_COUNT);
-      hiddenIn.set(a.hiddenState, i * maxWidth); // krótsze niż maxWidth -> reszta zostaje 0 (dopełnienie pojemności)
+      if (cfg.memoryEnabled) {
+        hiddenIn.set(a.hiddenState, i * maxWidth); // krótsze niż maxWidth -> reszta zostaje 0 (dopełnienie pojemności)
+      }
       const shapeBase = i * (maxLayers + 1);
       shapes[shapeBase] = a.brainShape.layerCount;
       for (let l = 0; l < maxLayers; l++) shapes[shapeBase + 1 + l] = a.brainShape.widths[l];
