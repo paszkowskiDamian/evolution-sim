@@ -52,6 +52,22 @@ export default function App() {
           <b>{sim.snapshot.fps.toFixed(0)}</b> FPS
           {!sim.ready && ' · inicjalizacja…'}
         </div>
+        <div className="render-toggle" role="group" aria-label="Rendering style">
+          <button
+            className={sim.renderMode === 'classic' ? 'active' : ''}
+            aria-pressed={sim.renderMode === 'classic'}
+            onClick={() => sim.setRenderMode('classic')}
+          >
+            Classic
+          </button>
+          <button
+            className={sim.renderMode === 'sprites' ? 'active' : ''}
+            aria-pressed={sim.renderMode === 'sprites'}
+            onClick={() => sim.setRenderMode('sprites')}
+          >
+            Sprites
+          </button>
+        </div>
       </main>
 
       <aside className="sidebar right">

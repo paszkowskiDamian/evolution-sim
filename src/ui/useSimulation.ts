@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Simulation } from '../core/simulation/simulation';
-import { PixiRenderer } from '../renderer/pixi/PixiRenderer';
+import { PixiRenderer, type RenderMode } from '../renderer/pixi/PixiRenderer';
 import { defaultConfig, type SimulationConfig } from '../config/simulationConfig';
 import type { AgentView, StatsSample } from '../shared/types';
 import { FEMALE } from '../core/genetics/genome';
@@ -65,6 +65,16 @@ const EMPTY_SNAPSHOT: UiSnapshot = {
 };
 
 const UI_REFRESH_MS = 150;
+const RENDER_MODE_STORAGE_KEY = 'evolution-sim.render-mode';
+
+function initialRenderMode(): RenderMode {
+  if (typeof window === 'undefined') return 'sprites';
+  try {
+    return window.localStorage.getItem(RENDER_MODE_STORAGE_KEY) === 'classic' ? 'classic' : 'sprites';
+  } catch {
+    return 'sprites';
+  }
+}
 
 /**
  * Stan ścieżki GPU widoczny w UI — patrz `Controls.tsx` (przycisk "Spróbuj
@@ -109,6 +119,7 @@ export function useSimulation() {
   const [config, setConfig] = useState<SimulationConfig>(defaultConfig);
   const [gpuStatus, setGpuStatus] = useState<GpuStatus>('cpu');
   const [editTool, setEditToolState] = useState<EditTool>('none');
+  const [renderMode, setRenderModeState] = useState<RenderMode>(initialRenderMode);
   const selectedIdRef = useRef<number | null>(null);
 
   // ---------------------------------------------------------------- pętla
@@ -117,6 +128,7 @@ export function useSimulation() {
     if (!host) return;
 
     const renderer = new PixiRenderer();
+    renderer.setRenderMode(renderMode);
     rendererRef.current = renderer;
     let raf = 0;
     let cancelled = false;
@@ -130,7 +142,7 @@ export function useSimulation() {
       const sim = simRef.current!;
       const size = renderer.viewportSize;
       renderer.camera.setViewport(size.width, size.height);
-      renderer.camera.fitWorld(sim.config.worldSize);
+      renderer.camera.fitWorld(sim.config.worldSize, 2);
       setReady(true);
 
       const loop = async (now: number) => {
@@ -413,6 +425,16 @@ export function useSimulation() {
     setEditToolState(tool);
   }, []);
 
+  const setRenderMode = useCallback((mode: RenderMode) => {
+    rendererRef.current?.setRenderMode(mode);
+    try {
+      window.localStorage.setItem(RENDER_MODE_STORAGE_KEY, mode);
+    } catch {
+      // Rendering still switches when storage is unavailable (private policy).
+    }
+    setRenderModeState(mode);
+  }, []);
+
   const reset = useCallback(
     (overrides: Partial<SimulationConfig> = {}) => {
       const sim = simRef.current!;
@@ -467,7 +489,9 @@ export function useSimulation() {
     config,
     gpuStatus,
     editTool,
+    renderMode,
     setEditTool,
+    setRenderMode,
     setRunning,
     setSpeed,
     stepOnce,

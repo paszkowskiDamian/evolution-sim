@@ -12,6 +12,7 @@
     "headless": "tsx scripts/headless.ts",
     "evolve": "tsx scripts/evolve.ts",
     "test:determinism": "tsx scripts/determinism.test.ts",
+    "test:camera": "tsx scripts/camera.test.ts",
     "test:gpu-shader": "tsx scripts/gpu-shader-check.ts"
   },
   "dependencies": {

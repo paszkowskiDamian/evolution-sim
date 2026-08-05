@@ -1,52 +1,86 @@
-import { Graphics, type Renderer, type Texture } from 'pixi.js';
+import { Assets, Graphics, type Renderer, type Texture } from 'pixi.js';
 
 /**
- * Tekstury generowane raz przy starcie.
- *
- * Wszystkie kształty są białe — kolor nadajemy przez `tint`, dzięki czemu
- * tysiące sprite'ów dzieli jedną teksturę i renderuje się w jednym batchu.
- *
- * Kształty rysujemy tak, żeby ich bounding box był przewidywalny —
- * `generateTexture` przycina teksturę do bounds, więc anchor musi być
- * policzony z tych samych liczb, a nie zgadnięty.
+ * Renderer-owned bitmap assets. Static `new URL(..., import.meta.url)` calls
+ * let Vite fingerprint and emit the PNG files without exposing them to core.
  */
+export const spriteAssetUrls = {
+  agentBody: new URL('./assets/agent-body.png', import.meta.url).href,
+  agentDetails: new URL('./assets/agent-details.png', import.meta.url).href,
+  food: new URL('./assets/food.png', import.meta.url).href,
+  looseRock: new URL('./assets/loose-rock.png', import.meta.url).href,
+  solidStone: new URL('./assets/solid-stone.png', import.meta.url).href,
+  grass: new URL('./assets/grass.png', import.meta.url).href,
 
-const R = 32; // promień koła agenta w pikselach tekstury
-const NOSE = 2.5 * R; // zasięg dzioba w osi X
-const FOOD_R = 16;
-const ROCK_R = 14;
-
-export const AGENT_ANCHOR_X = R / NOSE; // 0.4
-export const AGENT_ANCHOR_Y = 0.5;
+  // Bundled for mechanics that do not exist on origin/main yet. Keeping the
+  // URLs here makes the renderer ready to opt in without inventing core state.
+  plantSeedling: new URL('./assets/plant-seedling.png', import.meta.url).href,
+  plantGrowing: new URL('./assets/plant-growing.png', import.meta.url).href,
+  plantMature: new URL('./assets/plant-mature.png', import.meta.url).href,
+  storageCrate: new URL('./assets/storage-crate.png', import.meta.url).href,
+  path: new URL('./assets/path.png', import.meta.url).href,
+  snow: new URL('./assets/snow.png', import.meta.url).href,
+  water: new URL('./assets/water.png', import.meta.url).href,
+} as const;
 
 export interface SpriteTextures {
+  agentBody: Texture;
+  agentDetails: Texture;
+  food: Texture;
+  rock: Texture;
+  stone: Texture;
+  grass: Texture;
+}
+
+export interface ClassicTextures {
   agent: Texture;
   food: Texture;
   rock: Texture;
 }
 
-export function createTextures(renderer: Renderer): SpriteTextures {
-  // Agent: koło (0..2R) + dziób wskazujący kierunek (oś +X = heading 0).
+async function loadTexture(url: string): Promise<Texture> {
+  const texture = await Assets.load<Texture>(url);
+  texture.source.scaleMode = 'nearest';
+  return texture;
+}
+
+/** Load only assets represented by current core state. */
+export async function loadSpriteTextures(): Promise<SpriteTextures> {
+  const [agentBody, agentDetails, food, rock, stone, grass] = await Promise.all([
+    loadTexture(spriteAssetUrls.agentBody),
+    loadTexture(spriteAssetUrls.agentDetails),
+    loadTexture(spriteAssetUrls.food),
+    loadTexture(spriteAssetUrls.looseRock),
+    loadTexture(spriteAssetUrls.solidStone),
+    loadTexture(spriteAssetUrls.grass),
+  ]);
+
+  return { agentBody, agentDetails, food, rock, stone, grass };
+}
+
+/**
+ * The original renderer artwork, kept intact for the live Classic mode.
+ * White procedural textures share batches and receive their colours via tint.
+ */
+export function createClassicTextures(renderer: Renderer): ClassicTextures {
   const agentGfx = new Graphics();
   agentGfx
-    .moveTo(R, R - R * 0.55)
-    .lineTo(NOSE, R)
-    .lineTo(R, R + R * 0.55)
+    .moveTo(32, 32 - 32 * 0.55)
+    .lineTo(80, 32)
+    .lineTo(32, 32 + 32 * 0.55)
     .fill(0xffffff);
-  agentGfx.circle(R, R, R).fill(0xffffff);
+  agentGfx.circle(32, 32, 32).fill(0xffffff);
 
   const foodGfx = new Graphics();
-  foodGfx.circle(FOOD_R, FOOD_R, FOOD_R).fill(0xffffff);
+  foodGfx.circle(16, 16, 16).fill(0xffffff);
 
-  // Kamień: nieregularny wielokąt — sylwetka celowo kanciasta, żeby
-  // z daleka odróżniała się od okrągłej kropki jedzenia.
   const rockGfx = new Graphics();
   rockGfx
-    .moveTo(ROCK_R * 0.2, ROCK_R * 1.7)
-    .lineTo(ROCK_R * 0.9, ROCK_R * 0.2)
-    .lineTo(ROCK_R * 1.7, ROCK_R * 0.5)
-    .lineTo(ROCK_R * 1.8, ROCK_R * 1.5)
-    .lineTo(ROCK_R * 1.1, ROCK_R * 1.9)
+    .moveTo(14 * 0.2, 14 * 1.7)
+    .lineTo(14 * 0.9, 14 * 0.2)
+    .lineTo(14 * 1.7, 14 * 0.5)
+    .lineTo(14 * 1.8, 14 * 1.5)
+    .lineTo(14 * 1.1, 14 * 1.9)
     .closePath()
     .fill(0xffffff);
 
@@ -57,19 +91,39 @@ export function createTextures(renderer: Renderer): SpriteTextures {
   agentGfx.destroy();
   foodGfx.destroy();
   rockGfx.destroy();
-
   return { agent, food, rock };
 }
 
-/** Skala sprite'a agenta tak, by koło odpowiadało promieniowi świata. */
+// Pixel measurements of the extracted art. Scale helpers keep the previous
+// world-space semantics: configured radii still describe collision bodies.
+const AGENT_BODY_RADIUS_PX = 55;
+const FOOD_RADIUS_PX = 54;
+const ROCK_RADIUS_PX = 72;
+
+/** Rotation pivot is the centre of the round body, not the sprite bounds. */
+export const AGENT_ANCHOR_X = 0.44;
+export const AGENT_ANCHOR_Y = 0.48;
+
 export function agentScaleFor(radius: number): number {
-  return radius / R;
+  return radius / AGENT_BODY_RADIUS_PX;
 }
 
 export function foodScaleFor(radius: number): number {
-  return radius / FOOD_R;
+  return radius / FOOD_RADIUS_PX;
 }
 
 export function rockScaleFor(radius: number): number {
-  return radius / ROCK_R;
+  return radius / ROCK_RADIUS_PX;
+}
+
+export function classicAgentScaleFor(radius: number): number {
+  return radius / 32;
+}
+
+export function classicFoodScaleFor(radius: number): number {
+  return radius / 16;
+}
+
+export function classicRockScaleFor(radius: number): number {
+  return radius / 14;
 }

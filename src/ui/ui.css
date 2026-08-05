@@ -142,6 +142,24 @@ button.chip.active { border-color: var(--accent); color: var(--accent); }
 }
 .hud b { color: var(--text); }
 
+.render-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  padding: 3px;
+  gap: 2px;
+  background: rgba(11, 14, 19, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.render-toggle button { border-color: transparent; background: transparent; }
+.render-toggle button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+
 .mobile-tabbar { display: none; }
 
 @media (max-width: 1100px) {
