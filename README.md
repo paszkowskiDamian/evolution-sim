@@ -9,6 +9,8 @@ A small shared 3D survival world for three browser-local language-model agents a
 - One shared [`SmolLM2-135M-Instruct`](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct) model, loaded in the browser through Transformers.js using 4-bit weights. It uses WebGPU when available and WASM otherwise.
 - The model receives compact local observations and chooses from a short menu of valid, context-specific actions. The simulation owns all state changes. Agents use deterministic survival instincts while the model downloads or if its response is invalid.
 - Communication with short-term memories, gathering berries and wood, mining stone, combat, mutual reproduction, crafting, and construction.
+- Persistent village responsibilities: Luma is the forager, Orin is the builder/woodworker, and Sable is the miner. Your character is the founder.
+- A communal stockpile and visible building plan. Villagers return resources home, share food with hungry neighbors, eat from shared reserves, and collectively fund a storehouse, workshop, cottages, and walls.
 - Crafting recipes for a pickaxe, sword, shelter kit, and cooked meal.
 - A world log and inspectable intentions, thoughts, inventories, health, and energy.
 
@@ -26,6 +28,7 @@ npm run dev
 - Mouse drag/wheel: orbit and zoom the camera
 - Click an agent: inspect, talk, propose reproduction, or fight
 - Bottom dock: eat, craft, and build
+- `Contribute`: deposit food beyond one personal meal, plus all carried wood and stone, into the village stockpile
 - Chat field: speak to all agents within hearing range
 - Space: pause/resume
 
@@ -46,7 +49,7 @@ npm run build
 npm run test:sandbox
 ```
 
-The focused test covers the four-character setup, player gathering, crafting, communication, mutual reproduction, and rejection of unknown model actions.
+The focused test covers roles, village contributions, food sharing, pooled construction, teammate safety, player gathering, crafting, communication, mutual reproduction, and rejection of unknown model actions.
 
 ## Suggested next experiments
 

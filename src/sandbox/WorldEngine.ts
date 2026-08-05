@@ -1,4 +1,5 @@
 import { applyRecipe, canCraft, RECIPES } from './recipes';
+import { canAffordProject, nextVillageProject, VILLAGE_CENTER, VILLAGE_RADIUS, villageGoalAction } from './village';
 import type {
   Agent,
   AgentAction,
@@ -10,6 +11,7 @@ import type {
   WorldEvent,
   WorldResource,
   WorldSnapshot,
+  VillageState,
 } from './types';
 
 const WORLD_RADIUS = 34;
@@ -17,6 +19,12 @@ const INTERACTION_RANGE = 2.8;
 const MAX_POPULATION = 6;
 const NAMES = ['Luma', 'Orin', 'Sable', 'Tavi', 'Mira', 'Kito'];
 const COLORS = ['#ffca6c', '#69d6c5', '#ff7c94', '#97a7ff', '#d5f47a', '#d99cff'];
+const ROLE_MISSIONS = {
+  forager: 'Keep everyone fed and bring berries to the village stockpile.',
+  builder: 'Gather timber and turn pooled resources into a permanent village.',
+  miner: 'Mine stone for tools, workshops, cottages, and defensive walls.',
+  founder: 'Help the small minds coordinate and shape their shared settlement.',
+} as const;
 
 type Planner = (perception: AgentPerception) => Promise<AgentAction>;
 
@@ -48,6 +56,13 @@ export class WorldEngine {
   readonly resources: WorldResource[] = [];
   readonly structures: Structure[] = [];
   readonly events: WorldEvent[] = [];
+  readonly village: VillageState = {
+    center: { ...VILLAGE_CENTER },
+    stockpile: { food: 0, wood: 0, stone: 0 },
+    level: 0,
+    contributions: 0,
+    nextProject: nextVillageProject([]),
+  };
 
   running = true;
   tick = 0;
@@ -111,6 +126,12 @@ export class WorldEngine {
     this.randomState = 0x9e3779b9;
     this.decisionPending.clear();
     this.selectedAgentId = null;
+    this.village.stockpile.food = 0;
+    this.village.stockpile.wood = 0;
+    this.village.stockpile.stone = 0;
+    this.village.level = 0;
+    this.village.contributions = 0;
+    this.village.nextProject = nextVillageProject([]);
 
     const starts = [{ x: -4, z: -3 }, { x: 4, z: -3 }, { x: -3, z: 4 }];
     starts.forEach((point, index) => this.spawnAgent(point.x, point.z, 0, index));
@@ -118,6 +139,8 @@ export class WorldEngine {
     human.name = 'You';
     human.goal = 'Explore the valley';
     human.thought = 'WASD to move · E to interact';
+
+    this.structures.push({ id: this.id('structure'), kind: 'campfire', ownerId: 'village', x: 0, z: 0, rotation: 0 });
 
     for (let i = 0; i < 18; i += 1) this.spawnResource('berries', 5);
     for (let i = 0; i < 14; i += 1) this.spawnResource('wood', 4);
@@ -177,6 +200,10 @@ export class WorldEngine {
   humanInteract(): boolean {
     const human = this.human;
     if (!human) return false;
+    if (distance(human, this.village.center) <= VILLAGE_RADIUS
+      && (human.inventory.food > 1 || human.inventory.wood > 0 || human.inventory.stone > 0)) {
+      return this.performAction(human.id, { type: 'deposit', reason: 'You contribute supplies to the village.' });
+    }
     const resource = this.resources
       .filter((candidate) => candidate.amount > 0 && distance(human, candidate) <= INTERACTION_RANGE)
       .sort((a, b) => distance(human, a) - distance(human, b))[0];
@@ -203,9 +230,16 @@ export class WorldEngine {
       self: copyAgent(agent),
       nearbyAgents: this.agents
         .filter((other) => other.alive && other.id !== agent.id && distance(agent, other) <= range)
-        .map(({ id, name, x, z, health, energy, speech }) => ({ id, name, x, z, health, energy, speech })),
+        .map(({ id, name, role, x, z, health, energy, speech }) => ({ id, name, role, x, z, health, energy, speech })),
       nearbyResources: this.resources.filter((resource) => resource.amount > 0.2 && distance(agent, resource) <= range).map((r) => ({ ...r })),
       nearbyStructures: this.structures.filter((structure) => distance(agent, structure) <= range).map((s) => ({ ...s })),
+      village: {
+        center: { ...this.village.center },
+        stockpile: { ...this.village.stockpile },
+        level: this.village.level,
+        contributions: this.village.contributions,
+        nextProject: { ...this.village.nextProject, costs: { ...this.village.nextProject.costs }, site: { ...this.village.nextProject.site } },
+      },
       recipes: RECIPES,
       day: 1 + Math.floor(this.elapsed / 90),
     };
@@ -219,7 +253,7 @@ export class WorldEngine {
     switch (action.type) {
       case 'move':
         agent.target = { x: clampWorld(Number(action.x) || 0), z: clampWorld(Number(action.z) || 0) };
-        agent.goal = 'Exploring';
+        agent.goal = action.reason?.slice(0, 64) ?? 'Exploring';
         return true;
       case 'say':
         return this.speak(agent, action.message);
@@ -231,6 +265,10 @@ export class WorldEngine {
         return this.craft(agent, action.recipe);
       case 'build':
         return this.build(agent, action.structure, action.x, action.z);
+      case 'deposit':
+        return this.deposit(agent);
+      case 'share':
+        return this.share(agent, action.targetId, action.item, action.amount);
       case 'attack':
         return this.attack(agent, action.targetId);
       case 'reproduce':
@@ -242,6 +280,11 @@ export class WorldEngine {
           agent.inventory.food -= 1;
           agent.energy = Math.min(100, agent.energy + 34);
           agent.health = Math.min(100, agent.health + 4);
+        } else if (distance(agent, this.village.center) <= VILLAGE_RADIUS && this.village.stockpile.food > 0 && agent.energy < 70) {
+          this.village.stockpile.food -= 1;
+          agent.energy = Math.min(100, agent.energy + 30);
+          agent.health = Math.min(100, agent.health + 3);
+          agent.thought = 'The village fed me from our shared supplies.';
         } else {
           agent.energy = Math.min(100, agent.energy + 0.8);
         }
@@ -250,39 +293,7 @@ export class WorldEngine {
   }
 
   heuristicAction(perception: AgentPerception): AgentAction {
-    const { self } = perception;
-    if (self.energy < 62 && self.inventory.food > 0) return { type: 'rest', reason: 'I should eat before working.' };
-
-    const closeResource = perception.nearbyResources
-      .filter((resource) => distance(self, resource) <= INTERACTION_RANGE)
-      .sort((a, b) => distance(self, a) - distance(self, b))[0];
-    if (closeResource) {
-      return closeResource.kind === 'rock'
-        ? { type: 'dig', resourceId: closeResource.id, reason: 'Stone enables tools and shelter.' }
-        : { type: 'pickup', resourceId: closeResource.id, reason: 'Gathering nearby supplies.' };
-    }
-
-    const craftable = RECIPES.find((recipe) => canCraft(self.inventory, recipe) && (
-      (recipe.name === 'pickaxe' && self.inventory.pickaxe === 0)
-      || (recipe.name === 'shelterKit' && self.inventory.shelterKit === 0)
-      || recipe.name === 'meal'
-    ));
-    if (craftable) return { type: 'craft', recipe: craftable.name, reason: `I can make ${craftable.label}.` };
-    if (self.inventory.shelterKit > 0) return { type: 'build', structure: 'shelter', reason: 'A shared home will anchor us.' };
-
-    const desired = self.inventory.food < 3 ? 'berries' : self.inventory.wood < 5 ? 'wood' : 'rock';
-    const target = perception.nearbyResources
-      .filter((resource) => resource.kind === desired)
-      .sort((a, b) => distance(self, a) - distance(self, b))[0]
-      ?? perception.nearbyResources.sort((a, b) => distance(self, a) - distance(self, b))[0];
-    if (target) return { type: 'move', x: target.x, z: target.z, reason: `Looking for ${desired}.` };
-
-    return {
-      type: 'move',
-      x: self.x + (this.random() - 0.5) * 14,
-      z: self.z + (this.random() - 0.5) * 14,
-      reason: 'Exploring beyond the known area.',
-    };
+    return villageGoalAction(perception);
   }
 
   private async requestDecision(agent: Agent): Promise<void> {
@@ -372,9 +383,61 @@ export class WorldEngine {
     return true;
   }
 
-  private build(agent: Agent, kind: 'shelter' | 'wall', rawX?: number, rawZ?: number): boolean {
+  private deposit(agent: Agent): boolean {
+    if (distance(agent, this.village.center) > VILLAGE_RADIUS) return false;
+    const food = Math.max(0, Math.floor(agent.inventory.food - 1));
+    const wood = Math.max(0, Math.floor(agent.inventory.wood));
+    const stone = Math.max(0, Math.floor(agent.inventory.stone));
+    const total = food + wood + stone;
+    if (total === 0) return false;
+    agent.inventory.food -= food;
+    agent.inventory.wood -= wood;
+    agent.inventory.stone -= stone;
+    this.village.stockpile.food += food;
+    this.village.stockpile.wood += wood;
+    this.village.stockpile.stone += stone;
+    this.village.contributions += total;
+    agent.goal = 'Supplying the village';
+    this.addEvent(`${agent.name} contributed ${total} supplies to the village.`, 'good');
+    return true;
+  }
+
+  private share(agent: Agent, targetId: string, item: 'food', rawAmount: number): boolean {
+    const target = this.agents.find((candidate) => candidate.id === targetId && candidate.alive);
+    const amount = Math.max(1, Math.min(3, Math.floor(rawAmount)));
+    if (!target || target.id === agent.id || distance(agent, target) > INTERACTION_RANGE || agent.inventory[item] < amount) return false;
+    agent.inventory[item] -= amount;
+    target.inventory[item] += amount;
+    agent.goal = `Helping ${target.name}`;
+    target.memories.push(`${agent.name} shared ${amount} food with me.`);
+    target.memories = target.memories.slice(-8);
+    this.addEvent(`${agent.name} shared food with ${target.name}.`, 'good');
+    return true;
+  }
+
+  private build(agent: Agent, kind: Structure['kind'], rawX?: number, rawZ?: number): boolean {
+    const project = this.village.nextProject;
+    if (kind === project.kind && distance(agent, this.village.center) <= VILLAGE_RADIUS && canAffordProject(this.village.stockpile, project)) {
+      this.village.stockpile.food -= project.costs.food;
+      this.village.stockpile.wood -= project.costs.wood;
+      this.village.stockpile.stone -= project.costs.stone;
+      this.structures.push({
+        id: this.id('structure'),
+        kind,
+        ownerId: 'village',
+        x: project.site.x,
+        z: project.site.z,
+        rotation: this.random() * Math.PI * 2,
+      });
+      agent.goal = `Completed ${project.label}`;
+      this.village.level += 1;
+      this.addEvent(`${agent.name} completed ${project.label} with everyone's supplies.`, 'good');
+      this.village.nextProject = nextVillageProject(this.structures);
+      return true;
+    }
     if (kind === 'shelter' && agent.inventory.shelterKit < 1) return false;
     if (kind === 'wall' && (agent.inventory.wood < 2 || agent.inventory.stone < 1)) return false;
+    if (kind !== 'shelter' && kind !== 'wall') return false;
     if (kind === 'shelter') agent.inventory.shelterKit -= 1;
     else {
       agent.inventory.wood -= 2;
@@ -391,6 +454,7 @@ export class WorldEngine {
   private attack(agent: Agent, targetId: string): boolean {
     const target = this.agents.find((candidate) => candidate.id === targetId && candidate.alive);
     if (!target || target.id === agent.id || distance(agent, target) > INTERACTION_RANGE) return false;
+    if (agent.controlledBy === 'ai' && target.controlledBy === 'ai') return false;
     const damage = 9 + agent.inventory.sword * 8;
     target.health -= damage;
     agent.energy = Math.max(0, agent.energy - 4);
@@ -432,6 +496,8 @@ export class WorldEngine {
       name: NAMES[index % NAMES.length],
       color: COLORS[paletteIndex % COLORS.length],
       controlledBy,
+      role: controlledBy === 'human' ? 'founder' : index % 3 === 0 ? 'forager' : index % 3 === 1 ? 'builder' : 'miner',
+      mission: '',
       x,
       z,
       health: 100,
@@ -451,6 +517,7 @@ export class WorldEngine {
       decisionAt: this.elapsed + 0.5 + index * 0.45,
       busyUntil: 0,
     };
+    agent.mission = ROLE_MISSIONS[agent.role];
     this.agents.push(agent);
     return agent;
   }
@@ -491,6 +558,13 @@ export class WorldEngine {
       agents: this.agents.filter((agent) => agent.alive).map(copyAgent),
       resources: this.resources.map((resource) => ({ ...resource })),
       structures: this.structures.map((structure) => ({ ...structure })),
+      village: {
+        center: { ...this.village.center },
+        stockpile: { ...this.village.stockpile },
+        level: this.village.level,
+        contributions: this.village.contributions,
+        nextProject: { ...this.village.nextProject, costs: { ...this.village.nextProject.costs }, site: { ...this.village.nextProject.site } },
+      },
       events: this.events.map((event) => ({ ...event })),
     };
     for (const listener of this.listeners) listener();

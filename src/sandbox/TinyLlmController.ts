@@ -1,4 +1,5 @@
 import { canCraft } from './recipes';
+import { villageGoalAction } from './village';
 import type { AgentAction, AgentPerception, RecipeName, StructureKind } from './types';
 
 interface ChatMessage { role: 'system' | 'user'; content: string }
@@ -6,7 +7,7 @@ type Generator = (prompt: string | ChatMessage[], options: Record<string, unknow
 
 const MODEL_ID = 'HuggingFaceTB/SmolLM2-135M-Instruct';
 const TRANSFORMERS_BROWSER_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
-const ACTIONS = new Set(['move', 'say', 'pickup', 'dig', 'craft', 'build', 'attack', 'reproduce', 'rest']);
+const ACTIONS = new Set(['move', 'say', 'pickup', 'dig', 'craft', 'build', 'deposit', 'share', 'attack', 'reproduce', 'rest']);
 const RECIPES = new Set<RecipeName>(['pickaxe', 'sword', 'shelterKit', 'meal']);
 
 function extractText(result: unknown): string {
@@ -44,7 +45,7 @@ function parseAction(text: string): AgentAction | null {
           }
           break;
         case 'build':
-          if (value.structure === 'shelter' || value.structure === 'wall') {
+          if (value.structure === 'shelter' || value.structure === 'wall' || value.structure === 'storehouse' || value.structure === 'workshop') {
             return {
               type: 'build',
               structure: value.structure as StructureKind,
@@ -52,6 +53,13 @@ function parseAction(text: string): AgentAction | null {
               z: typeof value.z === 'number' ? value.z : undefined,
               reason,
             };
+          }
+          break;
+        case 'deposit':
+          return { type: 'deposit', reason };
+        case 'share':
+          if (typeof value.targetId === 'string' && value.item === 'food' && typeof value.amount === 'number') {
+            return { type: 'share', targetId: value.targetId, item: 'food', amount: value.amount, reason };
           }
           break;
         case 'attack':
@@ -79,8 +87,9 @@ function compactPerception(perception: AgentPerception): string {
   const messages = self.inbox.slice(-3).map((message) => `${message.from}:${message.text}`).join(' | ') || 'none';
   const memory = self.memories.slice(-4).join(' | ') || 'none';
   return [
-    `day=${perception.day} you=${self.id}:${self.name} position=${self.x.toFixed(1)},${self.z.toFixed(1)}`,
+    `day=${perception.day} you=${self.id}:${self.name} role=${self.role} mission=${self.mission} position=${self.x.toFixed(1)},${self.z.toFixed(1)}`,
     `health=${self.health.toFixed(0)} energy=${self.energy.toFixed(0)} inventory=${JSON.stringify(self.inventory)}`,
+    `village_stockpile=${JSON.stringify(perception.village.stockpile)} next_project=${perception.village.nextProject.label} costs=${JSON.stringify(perception.village.nextProject.costs)}`,
     `agents=[${agents}]`,
     `resources=[${resources}]`,
     `heard=[${messages}] memory=[${memory}]`,
@@ -95,6 +104,8 @@ function actionLabel(action: AgentAction): string {
     case 'dig': return `mine ${action.resourceId}`;
     case 'craft': return `craft ${action.recipe}`;
     case 'build': return `build ${action.structure}`;
+    case 'deposit': return 'deposit carried resources in the village stockpile';
+    case 'share': return `share ${action.amount} food with ${action.targetId}`;
     case 'attack': return `attack ${action.targetId}`;
     case 'reproduce': return `ask ${action.targetId} to reproduce`;
     case 'rest': return 'eat or rest';
@@ -103,16 +114,18 @@ function actionLabel(action: AgentAction): string {
 
 function candidateActions(perception: AgentPerception): AgentAction[] {
   const { self } = perception;
-  const candidates: AgentAction[] = [];
+  const priority = villageGoalAction(perception);
+  const candidates: AgentAction[] = [priority];
   const nearestResources = [...perception.nearbyResources]
     .sort((a, b) => Math.hypot(self.x - a.x, self.z - a.z) - Math.hypot(self.x - b.x, self.z - b.z))
     .slice(0, 3);
   for (const resource of nearestResources) {
     const close = Math.hypot(self.x - resource.x, self.z - resource.z) <= 2.8;
     if (close) {
-      candidates.push(resource.kind === 'rock'
+      const action: AgentAction = resource.kind === 'rock'
         ? { type: 'dig', resourceId: resource.id, reason: 'Mine nearby stone.' }
-        : { type: 'pickup', resourceId: resource.id, reason: `Gather nearby ${resource.kind}.` });
+        : { type: 'pickup', resourceId: resource.id, reason: `Gather nearby ${resource.kind}.` };
+      if (JSON.stringify(action) !== JSON.stringify(priority)) candidates.push(action);
     } else {
       candidates.push({ type: 'move', x: resource.x, z: resource.z, reason: `Travel toward ${resource.kind}.` });
     }
@@ -126,7 +139,6 @@ function candidateActions(perception: AgentPerception): AgentAction[] {
     candidates.push({ type: 'say', message, reason: 'Coordinate with a neighbor.' });
     if (Math.hypot(self.x - other.x, self.z - other.z) <= 2.8) {
       if (self.energy >= 72 && other.energy >= 72) candidates.push({ type: 'reproduce', targetId: other.id, reason: 'Seek mutual consent to grow the group.' });
-      candidates.push({ type: 'attack', targetId: other.id, reason: 'Choose conflict with a nearby person.' });
     }
   }
   for (const recipe of perception.recipes) {
@@ -187,7 +199,7 @@ export class TinyLlmController {
     const messages: ChatMessage[] = [
       {
         role: 'system',
-        content: 'You control one person in a survival world. Cooperate, communicate, survive, and build. Choose one numbered action. Reply only with its number.',
+        content: 'You control one villager with a persistent job. Cooperate, share supplies, fulfill your mission, and build the village plan. Choose one numbered action. Reply only with its number.',
       },
       {
         role: 'user',

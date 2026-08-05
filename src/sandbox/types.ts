@@ -1,6 +1,7 @@
 export type ResourceKind = 'berries' | 'wood' | 'rock';
 export type ItemKind = 'food' | 'wood' | 'stone' | 'pickaxe' | 'sword' | 'shelterKit';
-export type StructureKind = 'shelter' | 'wall';
+export type StructureKind = 'campfire' | 'storehouse' | 'workshop' | 'shelter' | 'wall';
+export type AgentRole = 'forager' | 'builder' | 'miner' | 'founder';
 
 export interface Point {
   x: number;
@@ -41,6 +42,8 @@ export interface Agent extends Point {
   name: string;
   color: string;
   controlledBy: 'ai' | 'human';
+  role: AgentRole;
+  mission: string;
   health: number;
   energy: number;
   age: number;
@@ -66,6 +69,8 @@ export type AgentAction =
   | { type: 'dig'; resourceId: string; reason?: string }
   | { type: 'craft'; recipe: RecipeName; reason?: string }
   | { type: 'build'; structure: StructureKind; x?: number; z?: number; reason?: string }
+  | { type: 'deposit'; reason?: string }
+  | { type: 'share'; targetId: string; item: 'food'; amount: number; reason?: string }
   | { type: 'attack'; targetId: string; reason?: string }
   | { type: 'reproduce'; targetId: string; reason?: string }
   | { type: 'rest'; reason?: string };
@@ -95,6 +100,7 @@ export interface WorldSnapshot {
   agents: Agent[];
   resources: WorldResource[];
   structures: Structure[];
+  village: VillageState;
   events: WorldEvent[];
 }
 
@@ -102,9 +108,25 @@ export type ModelStatus = 'heuristic' | 'loading' | 'ready' | 'error';
 
 export interface AgentPerception {
   self: Agent;
-  nearbyAgents: Array<Pick<Agent, 'id' | 'name' | 'x' | 'z' | 'health' | 'energy' | 'speech'>>;
+  nearbyAgents: Array<Pick<Agent, 'id' | 'name' | 'role' | 'x' | 'z' | 'health' | 'energy' | 'speech'>>;
   nearbyResources: WorldResource[];
   nearbyStructures: Structure[];
+  village: VillageState;
   recipes: Recipe[];
   day: number;
+}
+
+export interface VillageProject {
+  kind: Exclude<StructureKind, 'campfire'>;
+  label: string;
+  costs: Pick<Inventory, 'food' | 'wood' | 'stone'>;
+  site: Point;
+}
+
+export interface VillageState {
+  center: Point;
+  stockpile: Pick<Inventory, 'food' | 'wood' | 'stone'>;
+  level: number;
+  contributions: number;
+  nextProject: VillageProject;
 }

@@ -130,7 +130,55 @@ function createResourceVisual(resource: WorldResource): THREE.Group {
 
 function createStructureVisual(structure: Structure): THREE.Group {
   const group = new THREE.Group();
-  if (structure.kind === 'shelter') {
+  if (structure.kind === 'campfire') {
+    const wood = new THREE.MeshStandardMaterial({ color: '#493025', roughness: 1 });
+    for (const rotation of [-0.72, 0.72]) {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 1.4, 9), wood);
+      log.rotation.z = Math.PI / 2;
+      log.rotation.y = rotation;
+      log.position.y = 0.16;
+      log.castShadow = true;
+      group.add(log);
+    }
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.4, 1.2, 9),
+      new THREE.MeshStandardMaterial({ color: '#ff9f43', emissive: '#ff6b24', emissiveIntensity: 2.5 }),
+    );
+    flame.position.y = 0.75;
+    const glow = new THREE.PointLight('#ff9d54', 18, 11, 2);
+    glow.position.y = 1.2;
+    group.add(flame, glow);
+  } else if (structure.kind === 'storehouse') {
+    const walls = new THREE.Mesh(
+      new THREE.BoxGeometry(4.2, 2.5, 3.3),
+      new THREE.MeshStandardMaterial({ color: '#775038', roughness: 1 }),
+    );
+    walls.position.y = 1.25;
+    walls.castShadow = true;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(3.2, 1.6, 4), new THREE.MeshStandardMaterial({ color: '#394e41', roughness: 1 }));
+    roof.position.y = 3.25;
+    roof.rotation.y = Math.PI / 4;
+    roof.castShadow = true;
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.8, 0.12), new THREE.MeshStandardMaterial({ color: '#2e211b' }));
+    door.position.set(0, 0.9, 1.7);
+    group.add(walls, roof, door);
+  } else if (structure.kind === 'workshop') {
+    const postMaterial = new THREE.MeshStandardMaterial({ color: '#6e482f', roughness: 1 });
+    for (const x of [-1.7, 1.7]) for (const z of [-1.35, 1.35]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 2.5, 8), postMaterial);
+      post.position.set(x, 1.25, z);
+      post.castShadow = true;
+      group.add(post);
+    }
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(3.1, 1.2, 4), new THREE.MeshStandardMaterial({ color: '#637148', roughness: 1 }));
+    roof.position.y = 3;
+    roof.rotation.y = Math.PI / 4;
+    roof.castShadow = true;
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.22, 1), new THREE.MeshStandardMaterial({ color: '#8d603e' }));
+    bench.position.y = 0.85;
+    bench.castShadow = true;
+    group.add(roof, bench);
+  } else if (structure.kind === 'shelter') {
     const wall = new THREE.MeshStandardMaterial({ color: '#8c5b38', roughness: 1 });
     const roof = new THREE.MeshStandardMaterial({ color: '#405d45', roughness: 0.95, flatShading: true });
     const cabin = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.1, 2.8), wall);

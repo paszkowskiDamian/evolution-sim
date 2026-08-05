@@ -73,7 +73,7 @@ export default function App() {
         <div className="world-stats">
           <span>DAY <b>{snapshot.day}</b></span>
           <span>POPULATION <b>{snapshot.agents.length}/6</b></span>
-          <span>BUILT <b>{snapshot.structures.length}</b></span>
+          <span>VILLAGE <b>LV {snapshot.village.level}</b></span>
         </div>
         <button className={`model-pill ${snapshot.modelStatus}`} onClick={() => void loadModel()}>
           <i />
@@ -88,13 +88,15 @@ export default function App() {
         {selected ? <>
           <div className="agent-heading">
             <span className="portrait" style={{ background: selected.color }}>{selected.controlledBy === 'human' ? 'YOU' : selected.name[0]}</span>
-            <div><small>{selected.controlledBy === 'human' ? 'YOUR CHARACTER' : `GENERATION ${selected.generation}`}</small><h2>{selected.name}</h2></div>
+            <div><small>{selected.controlledBy === 'human' ? 'YOUR CHARACTER' : `${selected.role.toUpperCase()} · GEN ${selected.generation}`}</small><h2>{selected.name}</h2></div>
             {selected.id !== human?.id && <button className="close" onClick={() => engine.selectAgent(human?.id ?? null)}>×</button>}
           </div>
           <div className="vital"><label><span>Health</span><b>{selected.health.toFixed(0)}</b></label><Bar value={selected.health} tone="health" /></div>
           <div className="vital"><label><span>Energy</span><b>{selected.energy.toFixed(0)}</b></label><Bar value={selected.energy} tone="energy" /></div>
           <InventoryView agent={selected} />
           <div className="mind">
+            <small>LONG-TERM GOAL</small>
+            <p className="mission">{selected.mission}</p>
             <small>CURRENT INTENTION</small>
             <p>{selected.goal}</p>
             <blockquote>{selected.thought}</blockquote>
@@ -108,6 +110,15 @@ export default function App() {
       </aside>
 
       <aside className="event-card glass">
+        <div className="village-plan">
+          <div className="section-title"><span>VILLAGE PLAN · LV {snapshot.village.level}</span><i>{snapshot.village.contributions} GIVEN</i></div>
+          <h3>{snapshot.village.nextProject.label}</h3>
+          <div className="stockpile">
+            <span>🥕 <b>{snapshot.village.stockpile.food}</b>/{snapshot.village.nextProject.costs.food}</span>
+            <span>🪵 <b>{snapshot.village.stockpile.wood}</b>/{snapshot.village.nextProject.costs.wood}</span>
+            <span>🪨 <b>{snapshot.village.stockpile.stone}</b>/{snapshot.village.nextProject.costs.stone}</span>
+          </div>
+        </div>
         <div className="section-title"><span>WORLD LOG</span><i>LIVE</i></div>
         <div className="events">{snapshot.events.slice(0, 7).map((event) => (
           <div className={`event ${event.tone}`} key={event.id}><time>{event.tick}</time><p>{event.text}</p></div>
@@ -117,11 +128,12 @@ export default function App() {
       <section className="action-dock glass">
         <div className="movement-help"><kbd>W</kbd><div><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><small>MOVE</small></div>
         <button className="primary-action" onClick={() => engine.humanInteract()}><span>E</span><b>Interact</b><small>gather · mine · greet</small></button>
+        <button onClick={() => humanAction({ type: 'deposit', reason: 'You contribute your resources.' })}><span>📦</span><b>Contribute</b></button>
         <button onClick={() => humanAction({ type: 'rest', reason: 'You stop to eat and recover.' })}><span>🍲</span><b>Eat / rest</b></button>
         {RECIPES.slice(0, 3).map((recipe) => <button key={recipe.name} onClick={() => humanAction({ type: 'craft', recipe: recipe.name, reason: `You craft ${recipe.label}.` })}>
           <span>{recipe.name === 'pickaxe' ? '⛏️' : recipe.name === 'sword' ? '🗡️' : '🏕️'}</span><b>{recipe.label}</b>
         </button>)}
-        <button onClick={() => humanAction({ type: 'build', structure: human?.inventory.shelterKit ? 'shelter' : 'wall', reason: 'You place a structure.' })}><span>🔨</span><b>Build</b></button>
+        <button onClick={() => humanAction({ type: 'build', structure: snapshot.village.nextProject.kind, x: snapshot.village.nextProject.site.x, z: snapshot.village.nextProject.site.z, reason: `You help complete ${snapshot.village.nextProject.label}.` })}><span>🔨</span><b>Build plan</b></button>
       </section>
 
       <form className="speech-box glass" onSubmit={submitSpeech}>
