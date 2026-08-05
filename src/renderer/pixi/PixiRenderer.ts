@@ -13,6 +13,7 @@ import {
 import { hslToRgb, clamp } from '../../core/utils/math';
 import { ROCK_TYPE, FOOD_TYPE } from '../../core/world/items';
 import { TILE_ROCK } from '../../core/world/terrain';
+import { FOOD_COOPERATIVE } from '../../core/world/food';
 
 /**
  * Renderer.
@@ -245,10 +246,15 @@ export class PixiRenderer {
         this.foodPool[used] = sprite;
       }
       sprite.visible = true;
-      sprite.scale.set(scale);
+      const cooperative = food.kind[i] === FOOD_COOPERATIVE;
+      const resourceRadius = cooperative ? sim.config.cooperativeFoodRadius : radius;
+      sprite.scale.set(foodScaleFor(resourceRadius));
+      sprite.tint = cooperative ? 0xf6c453 : 0x2f7d4f;
       sprite.x = food.xs[i];
       sprite.y = food.ys[i];
-      sprite.alpha = 1;
+      sprite.alpha = cooperative
+        ? 0.65 + 0.35 * (food.cooperationProgress[i] / Math.max(1, sim.config.cooperativeFoodWorkTicks))
+        : 1;
       used++;
     }
 
@@ -269,6 +275,7 @@ export class PixiRenderer {
         }
         sprite.visible = true;
         sprite.scale.set(scale);
+        sprite.tint = 0x2f7d4f;
         const behind = a.phenotype.radius + radius * 0.6 + i * radius * 1.3;
         sprite.x = a.x - Math.cos(a.heading) * behind;
         sprite.y = a.y - Math.sin(a.heading) * behind;

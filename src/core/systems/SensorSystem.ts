@@ -10,8 +10,10 @@ import {
   CONE_TYPE_WALL,
   CONE_TYPE_AGENT_RIVAL,
   CONE_TYPE_AGENT_MATE,
+  CONE_TYPE_COOPERATIVE_FOOD,
   CONE_TYPE_FOOD,
 } from '../neural/network';
+import { FOOD_COOPERATIVE } from '../world/food';
 
 /**
  * Zbiera wejścia sieci neuronowej każdego agenta.
@@ -83,7 +85,8 @@ export class SensorSystem implements System {
         if (idx < 0 || d2 >= this.coneBestDist2[idx]) return;
         if (!terrain.hasLineOfSight(a.x, a.y, dx, dy)) return;
         this.coneBestDist2[idx] = d2;
-        this.coneBestType[idx] = CONE_TYPE_FOOD;
+        this.coneBestType[idx] =
+          world.food.kind[_id] === FOOD_COOPERATIVE ? CONE_TYPE_COOPERATIVE_FOOD : CONE_TYPE_FOOD;
         this.coneBestDx[idx] = dx;
         this.coneBestDy[idx] = dy;
       });
@@ -108,7 +111,7 @@ export class SensorSystem implements System {
         // ticku (BrainSystem jeszcze nie policzył nowego forward passu), więc
         // to zawsze sygnał z t-1, tak jak pamięć rekurencyjna w network.ts.
         // Sygnał NIE jest ograniczony stożkiem — krzyk słychać zza pleców.
-        const loudness = Math.max(0, other.brain.outputs[6]);
+        const loudness = cfg.signalReceptionEnabled ? Math.max(0, other.brain.outputs[6]) : 0;
         if (loudness > 0) {
           const score = loudness * (1 - Math.sqrt(d2) / vision);
           this.signalCandidates.add(id, dx, dy, d2, score);

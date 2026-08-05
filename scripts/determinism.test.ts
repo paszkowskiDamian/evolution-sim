@@ -59,6 +59,15 @@ function hashWorld(sim: Simulation): string {
     if (a.hiddenState.length > 0) mix(a.hiddenState[0]);
     for (let i = 0; i < a.genome.length; i += 7) mix(a.genome[i]);
   }
+  const food = sim.world.food;
+  for (let i = 0; i < food.capacity; i++) {
+    if (food.alive[i] === 0) continue;
+    mix(i);
+    mix(food.xs[i]);
+    mix(food.ys[i]);
+    mix(food.kind[i]);
+    mix(food.cooperationProgress[i]);
+  }
   return h.toString(16);
 }
 
@@ -124,6 +133,11 @@ check(
   '7. agenci jedzą (sensory + ruch działają)',
   b.statistics.cumulative.totalFoodEaten > 100,
   `${b.statistics.cumulative.totalFoodEaten} jednostek`,
+);
+check(
+  '7b. zdarzają się wspólne zbiory dużego jedzenia',
+  b.statistics.cumulative.totalCooperativeHarvests > 0 || c.statistics.cumulative.totalCooperativeHarvests > 0,
+  `${b.statistics.cumulative.totalCooperativeHarvests} (seed 4242) / ${c.statistics.cumulative.totalCooperativeHarvests} (seed 9999)`,
 );
 check(
   '8. mutacje zachodzą',

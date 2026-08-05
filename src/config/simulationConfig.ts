@@ -25,6 +25,14 @@ export interface SimulationConfig {
   maxFood: number;
   foodEnergy: number;
   foodRadius: number;
+  /** Rzadki zasób, którego nie da się wykorzystać samotnie. */
+  cooperativeFoodSpawnRate: number;
+  maxCooperativeFood: number;
+  cooperativeFoodEnergy: number;
+  cooperativeFoodRadius: number;
+  cooperativeFoodRequiredAgents: number;
+  /** Ile kolejnych ticków wszyscy uczestnicy muszą aktywnie pracować. */
+  cooperativeFoodWorkTicks: number;
   /** Jedzenie pojawia się w klastrach (płatach) zamiast równomiernie. */
   foodClusterCount: number;
   foodClusterRadius: number;
@@ -118,6 +126,8 @@ export interface SimulationConfig {
    * niosłby zero informacji, bo każdy nadawałby stale to samo.
    */
   signalEnergyCost: number;
+  /** Flaga eksperymentalna: false ogłusza odbiorców, ale nadawanie nadal kosztuje. */
+  signalReceptionEnabled: boolean;
 
   // --- energia ---
   maxEnergy: number;
@@ -198,6 +208,8 @@ export interface SimulationConfig {
   maxLayerWidth: number;
   /** Wyłącznie punkt odniesienia do kalibracji kosztu mózgu w EnergySystem. */
   defaultLayerWidth: number;
+  /** Flaga eksperymentalna: false zeruje stan rekurencyjny przed każdym forward passem. */
+  memoryEnabled: boolean;
 
   // --- statystyki ---
   statsInterval: number; // co ile ticków zapisujemy próbkę
@@ -239,6 +251,15 @@ export const defaultConfig: SimulationConfig = {
   maxFood: 700,
   foodEnergy: 40,
   foodRadius: 4,
+  // Duże, złote zasoby są rzadsze od zwykłego jedzenia i wymagają dwóch
+  // aktywnych agentów. Każdy współpracownik dostaje własną porcję energii,
+  // więc zachowanie jest bezpośrednim mutualizmem, a nie sztucznym bonusem fitness.
+  cooperativeFoodSpawnRate: 0.05,
+  maxCooperativeFood: 80,
+  cooperativeFoodEnergy: 55,
+  cooperativeFoodRadius: 20,
+  cooperativeFoodRequiredAgents: 2,
+  cooperativeFoodWorkTicks: 3,
   foodClusterCount: 18,
   foodClusterRadius: 220,
   // Podniesione z 0.25/0.002: przy starej wartości płat porusza się tak
@@ -313,6 +334,7 @@ export const defaultConfig: SimulationConfig = {
   // "okrzyki" zostają praktycznie darmowe. Bez tego ewolucja nie miałaby
   // żadnego powodu, żeby kiedykolwiek zamilknąć.
   signalEnergyCost: 0.03,
+  signalReceptionEnabled: true,
 
   maxEnergy: 100,
   startEnergy: 60,
@@ -367,7 +389,9 @@ export const defaultConfig: SimulationConfig = {
   juvenileCombatFactor: 0.15,
   combatMaturationTicks: 1000,
 
-  mutationChance: 0.03,
+  // Genom ma ~3658 wartości; 0.0008 daje średnio ok. 3 mutacje punktowe na
+  // potomka. Dawne 0.03 dawało ~110 i rozbijało współzależne strategie.
+  mutationChance: 0.0008,
   mutationDelta: 0.22,
   swapMutationChance: 0.02,
   bigMutationChance: 0.004,
@@ -387,6 +411,7 @@ export const defaultConfig: SimulationConfig = {
   minLayerWidth: 4,
   maxLayerWidth: 16,
   defaultLayerWidth: 32,
+  memoryEnabled: true,
 
   statsInterval: 20,
   statsHistoryLength: 600,

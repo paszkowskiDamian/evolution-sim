@@ -25,6 +25,8 @@ npm run typecheck
 npm run headless          # bieg symulacji w Node, bez przeglądarki
 npm run headless -- --ticks 50000 --seed 7
 npm run test:determinism  # testy determinizmu i zdrowia symulacji
+npm run test:collaboration # deterministyczny test mechaniki wspólnego zasobu
+npm run assay:collaboration -- --evolutionTicks 30000 --assayTicks 6000
 ```
 
 `npm run headless` istnieje po to, żeby **udowodnić separację warstw** — jeśli kiedykolwiek
@@ -125,6 +127,21 @@ stanu świata. Bez tego zachowania nie byłyby emergentne, tylko odczytane z got
 `fitness` w kodzie jest **tylko miarą opisową** dla wykresów. Nic jej nie optymalizuje,
 żaden system jej nie czyta. Selekcja odbywa się wyłącznie przez to, kto zdąży się rozmnożyć
 przed śmiercią.
+
+## Współpraca i test społeczny
+
+Złote, duże jednostki jedzenia są widoczne jako osobny rodzaj zasobu, ale nie da się ich
+zjeść ani podnieść samotnie. Co najmniej dwóch agentów musi stać w zasięgu i utrzymać
+wyjście `chwyć/upuść` przez kilka kolejnych ticków. Energię dostają wyłącznie faktyczni
+uczestnicy — bierny agent stojący obok nic nie zyskuje. To bezpośredni mutualizm: silnik
+nie przyznaje punktów za „bycie społecznym”, tylko zwykłą energię, która może przełożyć
+się na przeżycie i potomstwo.
+
+`npm run assay:collaboration` ewoluuje populację, a potem porównuje te same genomy w
+identycznym środowisku w wariantach: pełnym, bez odbioru sygnału, z pamięcią zerowaną co
+tick, bez dużego jedzenia oraz samotnie. Sam fakt wspólnego zbioru dowodzi działania
+mechaniki; przewaga pełnego wariantu nad ablacjami jest dopiero dowodem, że wyewoluowana
+strategia rzeczywiście korzysta z komunikacji lub pamięci.
 
 ---
 

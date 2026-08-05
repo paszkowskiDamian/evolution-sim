@@ -42,6 +42,8 @@ export class Agent {
   carriedCount = 0;
   /** Ticki pozostałe do możliwości ponownego chwytu/upuszczenia. */
   carryCooldown = 0;
+  /** ID dużego zasobu, przy którym agent pracuje w bieżącym ticku; -1 poza pracą. */
+  cooperatingFoodId = -1;
 
   // --- dziedziczność ---
   readonly genome: Float32Array;

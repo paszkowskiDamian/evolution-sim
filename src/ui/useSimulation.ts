@@ -30,6 +30,7 @@ export interface UiSnapshot {
   femaleCount: number;
   maleCount: number;
   foodCount: number;
+  cooperativeFoodCount: number;
   maxGeneration: number;
   avgAge: number;
   avgEnergy: number;
@@ -38,6 +39,7 @@ export interface UiSnapshot {
   totalBirths: number;
   totalDeaths: number;
   totalFoodEaten: number;
+  totalCooperativeHarvests: number;
   totalMutations: number;
   tickMs: number;
   fps: number;
@@ -50,6 +52,7 @@ const EMPTY_SNAPSHOT: UiSnapshot = {
   femaleCount: 0,
   maleCount: 0,
   foodCount: 0,
+  cooperativeFoodCount: 0,
   maxGeneration: 0,
   avgAge: 0,
   avgEnergy: 0,
@@ -58,6 +61,7 @@ const EMPTY_SNAPSHOT: UiSnapshot = {
   totalBirths: 0,
   totalDeaths: 0,
   totalFoodEaten: 0,
+  totalCooperativeHarvests: 0,
   totalMutations: 0,
   tickMs: 0,
   fps: 0,
@@ -82,7 +86,7 @@ export type GpuStatus = 'cpu' | 'gpu' | 'unsupported';
  * gesty na malowanie (patrz efekt interakcji niżej) — drugi palec nadal
  * służy do zoomu, niezależnie od aktywnego narzędzia.
  */
-export type EditTool = 'none' | 'addFood' | 'removeFood' | 'addWall' | 'removeWall';
+export type EditTool = 'none' | 'addFood' | 'addCooperativeFood' | 'removeFood' | 'addWall' | 'removeWall';
 
 /** Odstęp (w jednostkach świata) między kolejnymi "stemplami" przy przeciąganiu. */
 const PAINT_SPACING = 20;
@@ -186,6 +190,7 @@ export function useSimulation() {
             femaleCount,
             maleCount: current.world.agents.length - femaleCount,
             foodCount: current.world.food.count,
+            cooperativeFoodCount: current.world.food.cooperativeCount,
             maxGeneration: current.world.maxGeneration,
             avgAge: last?.avgAge ?? 0,
             avgEnergy: last?.avgEnergy ?? 0,
@@ -194,6 +199,7 @@ export function useSimulation() {
             totalBirths: stats.cumulative.totalBirths,
             totalDeaths: stats.cumulative.totalDeaths,
             totalFoodEaten: stats.cumulative.totalFoodEaten,
+            totalCooperativeHarvests: stats.cumulative.totalCooperativeHarvests,
             totalMutations: stats.cumulative.totalMutations,
             tickMs: current.lastTickMs,
             fps,
@@ -249,6 +255,9 @@ export function useSimulation() {
       switch (tool) {
         case 'addFood':
           sim.world.addFoodAt(world.x, world.y);
+          break;
+        case 'addCooperativeFood':
+          sim.world.addCooperativeFoodAt(world.x, world.y);
           break;
         case 'removeFood':
           sim.world.removeFoodNear(world.x, world.y, REMOVE_FOOD_RADIUS);

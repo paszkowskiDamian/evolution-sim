@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "headless": "tsx scripts/headless.ts",
     "evolve": "tsx scripts/evolve.ts",
+    "assay:collaboration": "tsx scripts/collaboration-assay.ts",
     "test:determinism": "tsx scripts/determinism.test.ts",
+    "test:collaboration": "tsx scripts/collaboration.test.ts",
     "test:gpu-shader": "tsx scripts/gpu-shader-check.ts"
   },
   "dependencies": {

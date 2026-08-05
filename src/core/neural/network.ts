@@ -40,7 +40,8 @@ import type { SimulationConfig } from '../../config/simulationConfig';
  *     kategorycznych sensorów w tym pliku, np. "płeć"):
  *       0 = nic (pełny zasięg bez przeszkód), -1 = ściana,
  *       -0.5 = inny agent tej samej płci (rywal), +0.5 = agent przeciwnej
- *       płci (potencjalny partner), +1 = jedzenie,
+ *       płci (potencjalny partner), +0.8 = duże jedzenie wymagające grupy,
+ *       +1 = zwykłe jedzenie,
  *   - ciepło (TerrainGrid.shelterWarmthAt) w punkcie trafienia — agent
  *     "widzi" gradient schronienia W GŁĘBI pola widzenia, nie tylko we
  *     własnej pozycji.
@@ -117,6 +118,7 @@ export const CONE_TYPE_NOTHING = 0;
 export const CONE_TYPE_WALL = -1;
 export const CONE_TYPE_AGENT_RIVAL = -0.5;
 export const CONE_TYPE_AGENT_MATE = 0.5;
+export const CONE_TYPE_COOPERATIVE_FOOD = 0.8;
 export const CONE_TYPE_FOOD = 1;
 
 export const OUTPUT_LABELS = [

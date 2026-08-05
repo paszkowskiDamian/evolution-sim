@@ -27,6 +27,7 @@ export function StatsPanel({ snapshot }: { snapshot: UiSnapshot }) {
       flow: [
         { label: 'narodziny', color: '#4ade80', values: h.map((s) => s.births) },
         { label: 'zgony', color: '#f87171', values: h.map((s) => s.deaths) },
+        { label: 'wspólne zbiory', color: '#f6c453', values: h.map((s) => s.cooperativeHarvests) },
       ],
       evolution: [
         { label: 'śr. pokolenie', color: '#a78bfa', values: h.map((s) => s.avgGeneration) },
@@ -50,6 +51,7 @@ export function StatsPanel({ snapshot }: { snapshot: UiSnapshot }) {
         <Stat label="osobniki" value={snapshot.population} />
         <Stat label="płeć (Ż/M)" value={`${snapshot.femaleCount} / ${snapshot.maleCount}`} />
         <Stat label="jedzenie" value={snapshot.foodCount} />
+        <Stat label="duże jedzenie" value={snapshot.cooperativeFoodCount} />
         <Stat label="pokolenie" value={snapshot.maxGeneration} />
         <Stat label="śr. wiek" value={snapshot.avgAge.toFixed(0)} />
         <Stat label="śr. energia" value={snapshot.avgEnergy.toFixed(1)} />
@@ -58,6 +60,7 @@ export function StatsPanel({ snapshot }: { snapshot: UiSnapshot }) {
         <Stat label="narodziny" value={snapshot.totalBirths.toLocaleString('pl-PL')} />
         <Stat label="zgony" value={snapshot.totalDeaths.toLocaleString('pl-PL')} />
         <Stat label="zjedzone" value={snapshot.totalFoodEaten.toLocaleString('pl-PL')} />
+        <Stat label="wspólne zbiory" value={snapshot.totalCooperativeHarvests.toLocaleString('pl-PL')} />
         <Stat label="mutacje" value={snapshot.totalMutations.toLocaleString('pl-PL')} />
       </div>
 

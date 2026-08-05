@@ -10,6 +10,7 @@ import { CollisionSystem } from '../systems/CollisionSystem';
 import { TerrainCollisionSystem } from '../systems/TerrainCollisionSystem';
 import { FoodSystem } from '../systems/FoodSystem';
 import { CarrySystem } from '../systems/CarrySystem';
+import { CooperativeFoodSystem } from '../systems/CooperativeFoodSystem';
 import { AttackSystem } from '../systems/AttackSystem';
 import { EnergySystem } from '../systems/EnergySystem';
 import { DeathSystem } from '../systems/DeathSystem';
@@ -107,8 +108,9 @@ export class Simulation {
       // CarrySystem PRZED FoodSystem: jeśli agent w tym samym ticku chce
       // I podnieść, I zjeść, podniesienie z ziemi ma pierwszeństwo — zjedzenie
       // wtedy sięga do właśnie napełnionego ekwipunku zamiast do ziemi.
-      new CarrySystem(), //        6. chwyt/upuszczenie (kamienie i jedzenie)
-      new FoodSystem(), //         7. jedzenie — wyłącznie na decyzję (wyjście "jedz")
+      new CooperativeFoodSystem(), // 6. wspólna praca przy dużym jedzeniu
+      new CarrySystem(), //        7. chwyt/upuszczenie (kamienie i jedzenie)
+      new FoodSystem(), //         8. jedzenie — wyłącznie na decyzję (wyjście "jedz")
       new AttackSystem(), //       8. walka
       this.gpuEnergy ?? new EnergySystem(), // 9. zużycie energii + regeneracja zdrowia
       new DeathSystem(), //        10. śmierć

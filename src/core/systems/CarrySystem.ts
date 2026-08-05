@@ -3,6 +3,7 @@ import type { World } from '../world/world';
 import { ROCK_TYPE, FOOD_TYPE } from '../world/items';
 import { TILE_EMPTY, TILE_ROCK } from '../world/terrain';
 import { wrap } from '../utils/math';
+import { FOOD_COOPERATIVE } from '../world/food';
 
 /**
  * Chwytanie, upuszczanie, kopanie i BUDOWANIE — jedno wyjście sieci
@@ -42,6 +43,8 @@ export class CarrySystem implements System {
 
     for (const a of world.agents) {
       if (!a.alive) continue;
+      // CooperativeFoodSystem rezerwuje akcję chwytu uczestnika na ten tick.
+      if (a.cooperatingFoodId >= 0) continue;
       if (a.carryCooldown > 0) {
         a.carryCooldown--;
         continue;
@@ -56,6 +59,7 @@ export class CarrySystem implements System {
         let bestFoodD2 = Infinity;
         world.foodGrid.forEachInRadius(a.x, a.y, reach, (id, _dx, _dy, d2) => {
           if (food.alive[id] === 0) return;
+          if (food.kind[id] === FOOD_COOPERATIVE) return;
           if (d2 < bestFoodD2) {
             bestFoodD2 = d2;
             pickedFoodId = id;
